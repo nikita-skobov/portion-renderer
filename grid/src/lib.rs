@@ -110,6 +110,7 @@ macro_rules! grid {
 /// Also the number of rows and columns are stored in the grid data structure.
 ///
 /// The grid data is stored in a row-major memory layout.
+#[derive(Default)]
 pub struct Grid<T> {
     data: Vec<T>,
     cols: usize,
