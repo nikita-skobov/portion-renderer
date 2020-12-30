@@ -60,6 +60,8 @@ impl Portioner {
         p.grid = Grid::new(num_rows as usize, num_cols as usize);
         p.row_height = row_height;
         p.col_width = col_width;
+        p.pix_h = height;
+        p.pix_w = width;
         p
     }
 
@@ -73,6 +75,13 @@ impl Portioner {
         }
     }
 
+    /// returns (num_rows, num_cols)
+    pub fn get_grid_dimensions(&self) -> (usize, usize) {
+        let num_rows = self.grid.rows();
+        let num_cols = self.grid.cols();
+        (num_rows, num_cols)
+    }
+
     /// iterates over the grid, and returns the minimum
     /// amount of contiguous active portions, and then
     /// resets the grid to not active
@@ -81,7 +90,7 @@ impl Portioner {
         let num_cols = self.grid.cols();
 
         // debug mode:
-        if cfg!(test) || cfg!(debug_assertions) {
+        if cfg!(test) {
             println!("");
             for i in 0..num_rows {
                 for item in self.grid.iter_row(i) {
