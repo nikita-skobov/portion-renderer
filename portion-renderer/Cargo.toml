@@ -1,0 +1,8 @@
+[package]
+name = "portion-renderer"
+version = "0.1.0"
+authors = ["nikita-skobov"]
+edition = "2018"
+
+[dependencies]
+grid = { path = "../grid" }
