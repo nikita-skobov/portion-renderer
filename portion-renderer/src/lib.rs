@@ -1,5 +1,11 @@
 use grid::Grid;
 
+macro_rules! get_red_index {
+    ($x:expr, $y:expr, $w:expr, $indices_per_pixel:expr) => {
+        $y * ($w * $indices_per_pixel) + ($x * $indices_per_pixel)
+    };
+}
+
 #[derive(Default, Clone)]
 pub struct GridPortion {
     active: bool,
@@ -12,6 +18,28 @@ pub struct Portioner {
     pub grid: Grid<GridPortion>,
     pub row_height: u32,
     pub col_width: u32,
+}
+
+pub struct PortionRenderer {
+    pixel_buffer: Vec<u8>,
+    portioner: Portioner,
+
+    width: u32,
+    height: u32,
+    indices_per_pixel: u32, // probably only 3 or 4
+
+    // TODO: need to know what
+    // order the pixels are in
+    // pixel_format: PixelFormatEnum
+}
+
+pub trait DrawDiff {
+    /// returns an option of a rect because
+    /// if its the first time being rendered, there
+    /// is nothing to diff
+    fn get_previous_bounds(&self) -> Option<Rect>;
+    fn get_current_bounds(&self) -> Rect;
+    fn set_previous_bounds_to_current(&mut self);
 }
 
 pub struct Rect {
@@ -199,6 +227,124 @@ impl Portioner {
         }
 
         out_rectangles
+    }
+}
+
+impl AsRef<Portioner> for PortionRenderer {
+    fn as_ref(&self) -> &Portioner { &self.portioner }
+}
+impl AsMut<Portioner> for PortionRenderer {
+    fn as_mut(&mut self) -> &mut Portioner { &mut self.portioner }
+}
+impl AsMut<Vec<u8>> for PortionRenderer {
+    fn as_mut(&mut self) -> &mut Vec<u8> { &mut self.pixel_buffer }
+}
+
+impl PortionRenderer {
+    pub fn new(
+        width: u32,
+        height: u32,
+        num_rows: u32,
+        num_cols: u32,
+    ) -> PortionRenderer {
+        let indices_per_pixel = 4; // TODO: dont assume
+        let num_pixels = width * height;
+        let data_len: usize = (num_pixels * indices_per_pixel) as usize;
+        let pixel_buffer = vec![0; data_len];
+        PortionRenderer {
+            pixel_buffer,
+            width,
+            height,
+            indices_per_pixel,
+            portioner: Portioner::new(width, height, num_rows, num_cols),
+        }
+    }
+
+    pub fn draw_grid_outline(&mut self) {
+        draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
+    }
+
+    pub fn draw(&mut self, item: &mut impl DrawDiff) {
+        if let Some(prev) = item.get_previous_bounds() {
+            let prev_x = prev.x;
+            let prev_y = prev.y;
+            let prev_w = prev.w;
+            let prev_h = prev.h;
+            for i in prev_y..(prev_y + prev_h) {
+                for j in prev_x..(prev_x + prev_w) {
+                    self.portioner.take_pixel(j, i);
+                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                    let red_index = red_index as usize;
+                    // TODO: why clear to 0, shouldnt it clear to
+                    // what was underneath??
+                    self.pixel_buffer[red_index] = 0;
+                    self.pixel_buffer[red_index + 1] = 0;
+                    self.pixel_buffer[red_index + 2] = 0;
+                    self.pixel_buffer[red_index + 3] = 0;
+                }
+            }
+        }
+
+        let now = item.get_current_bounds();
+        let now_x = now.x;
+        let now_y = now.y;
+        let now_w = now.w;
+        let now_h = now.h;
+        for i in now_y..(now_y + now_h) {
+            for j in now_x..(now_x + now_w) {
+                self.portioner.take_pixel(j, i);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: allow drawdiff item to decide its own pixels...
+                self.pixel_buffer[red_index] = 255;
+                self.pixel_buffer[red_index + 1] = 0;
+                self.pixel_buffer[red_index + 2] = 0;
+                self.pixel_buffer[red_index + 3] = 0;
+            }
+        }
+
+        item.set_previous_bounds_to_current();
+    }
+}
+
+pub fn draw_grid_outline(
+    p: &Portioner,
+    pixel_buffer: &mut Vec<u8>,
+    indices_per_pixel: u32,
+) {
+    let width = p.pix_w;
+    let height = p.pix_h;
+    let row_height = p.row_height;
+    let col_width = p.col_width;
+    let mut i = 0;
+    while i < height {
+        for j in 0..width {
+            // (j, i) is the pixel index
+            // but the pixel buffer has 4 values per pixel: RGBA
+            let red_index = get_red_index!(j, i, width, indices_per_pixel);
+            let index = red_index as usize;
+            pixel_buffer[index] = 100;
+            pixel_buffer[index + 1] = 100;
+            pixel_buffer[index + 2] = 100;
+            pixel_buffer[index + 3] = 100;
+        }
+
+        i += row_height;
+    }
+
+    // now i will be x, and j will be y
+    let mut i = 0;
+    while i < width {
+        for j in 0..height {
+            let red_index = get_red_index!(i, j, width, indices_per_pixel);
+            let index = red_index as usize;
+            pixel_buffer[index] = 100;
+            pixel_buffer[index + 1] = 100;
+            pixel_buffer[index + 2] = 100;
+            pixel_buffer[index + 3] = 100;
+        }
+
+        i += col_width;
     }
 }
 
