@@ -22,6 +22,7 @@ pub struct Portioner {
 
 pub struct PortionRenderer {
     pixel_buffer: Vec<u8>,
+    clear_buffer: Vec<u8>,
     portioner: Portioner,
 
     width: u32,
@@ -364,6 +365,7 @@ impl PortionRenderer {
         let data_len: usize = (num_pixels * indices_per_pixel) as usize;
         let pixel_buffer = vec![0; data_len];
         PortionRenderer {
+            clear_buffer: pixel_buffer.clone(),
             pixel_buffer,
             width,
             height,
@@ -389,10 +391,10 @@ impl PortionRenderer {
                     let red_index = red_index as usize;
                     // TODO: why clear to 0, shouldnt it clear to
                     // what was underneath??
-                    self.pixel_buffer[red_index] = 0;
-                    self.pixel_buffer[red_index + 1] = 0;
-                    self.pixel_buffer[red_index + 2] = 0;
-                    self.pixel_buffer[red_index + 3] = 0;
+                    self.pixel_buffer[red_index] = self.clear_buffer[red_index];
+                    self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
+                    self.pixel_buffer[red_index + 2] = self.clear_buffer[red_index + 2];
+                    self.pixel_buffer[red_index + 3] = self.clear_buffer[red_index + 3];
                 }
             }
         }
@@ -412,6 +414,11 @@ impl PortionRenderer {
                         let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                         let red_index = red_index as usize;
                         // TODO: pixel format???
+                        self.clear_buffer[red_index] = self.pixel_buffer[red_index];
+                        self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
+                        self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
+                        self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
+
                         self.pixel_buffer[red_index] = rgba_pixel.r;
                         self.pixel_buffer[red_index + 1] = rgba_pixel.g;
                         self.pixel_buffer[red_index + 2] = rgba_pixel.b;
@@ -435,6 +442,11 @@ impl PortionRenderer {
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
                 // TODO: pixel format???
+                self.clear_buffer[red_index] = self.pixel_buffer[red_index];
+                self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
+                self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
+                self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
+
                 self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
                 self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
                 self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
