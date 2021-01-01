@@ -28,23 +28,28 @@ pub struct PortionRenderer {
     height: u32,
     indices_per_pixel: u32, // probably only 3 or 4
 
-    layers: Vec<Layer>,
-
     // TODO: need to know what
     // order the pixels are in
     // pixel_format: PixelFormatEnum
 }
 
-pub struct Update {
+pub struct LayerRenderer<'a> {
+    layers: Vec<Layer<'a>>,
+}
 
+pub struct Update<'a> {
+    prev_bounds: Option<Rect>,
+    current_bounds: Rect,
+    pixel_data: DrawPixels<'a>,
 }
 
 #[derive(Default)]
-pub struct Layer {
+pub struct Layer<'a> {
     index: u32,
-    updates: Vec<Update>,
+    updates: Vec<Update<'a>>,
 }
 
+#[derive(Copy, Clone)]
 pub struct RgbaPixel {
     pub r: u8,
     pub g: u8,
@@ -52,6 +57,7 @@ pub struct RgbaPixel {
     pub a: u8,
 }
 
+#[derive(Copy, Clone)]
 pub enum DrawPixels<'a> {
     PixelVec(&'a Vec<u8>),
     PixelColor(RgbaPixel),
@@ -67,6 +73,7 @@ pub trait DrawDiff {
     fn get_current_pixels(&self) -> DrawPixels;
 }
 
+#[derive(Copy, Clone)]
 pub struct Rect {
     pub x: u32,
     pub y: u32,
@@ -255,6 +262,23 @@ impl Portioner {
     }
 }
 
+impl<'a> DrawDiff for Update<'a> {
+    fn get_previous_bounds(&self) -> Option<Rect> {
+        self.prev_bounds
+    }
+
+    fn get_current_bounds(&self) -> Rect {
+        self.current_bounds
+    }
+    // this should be called by the user after
+    // calling prepare_draw_on_layer
+    fn set_previous_bounds_to_current(&mut self) {}
+
+    fn get_current_pixels(&self) -> DrawPixels {
+        self.pixel_data
+    }
+}
+
 impl AsRef<Portioner> for PortionRenderer {
     fn as_ref(&self) -> &Portioner { &self.portioner }
 }
@@ -264,6 +288,69 @@ impl AsMut<Portioner> for PortionRenderer {
 impl AsMut<Vec<u8>> for PortionRenderer {
     fn as_mut(&mut self) -> &mut Vec<u8> { &mut self.pixel_buffer }
 }
+
+impl<'a> Default for LayerRenderer<'a> {
+    fn default() -> Self {
+        LayerRenderer { layers: vec![Layer::default()] }
+    }
+}
+
+impl<'a> LayerRenderer<'a> {
+    pub fn prepare_draw_on_layer(&mut self, item: &'a impl DrawDiff, layer_index: u32) {
+        let mut insert_at_index = 0;
+        let mut update_at_index = None;
+        let last_i = self.layers.len() - 1;
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if layer.index == layer_index {
+                update_at_index = Some(i);
+                break;
+            } else if layer.index > layer_index {
+                insert_at_index = i;
+                break;
+            } else if i == last_i {
+                insert_at_index = i + 1;
+                break;
+            }
+        }
+
+        let prev_bounds = item.get_previous_bounds();
+        let current_bounds = item.get_current_bounds();
+        let pixel_data = item.get_current_pixels();
+
+        if let Some(i) = update_at_index {
+            self.layers[i].updates.push(Update {
+                prev_bounds,
+                current_bounds,
+                pixel_data,
+            });
+        } else {
+            self.layers.insert(insert_at_index, Layer {
+                index: layer_index,
+                updates: vec![Update {
+                    prev_bounds,
+                    current_bounds,
+                    pixel_data,
+                }],
+            });
+        }
+    }
+
+    pub fn draw_all_layers(&mut self, renderer: &mut PortionRenderer) {
+        // TODO: can we avoid drawing bottom layers
+        // if a top layer fully covers it up?
+        let mut updates = vec![];
+        for layer in self.layers.iter_mut() {
+            // for each layer, draw every item
+            for item in layer.updates.drain(..) {
+                updates.push(item);
+            }
+        }
+        for mut update in updates {
+            renderer.draw(&mut update);
+        }
+    }
+}
+
 
 impl PortionRenderer {
     pub fn new(
@@ -282,44 +369,11 @@ impl PortionRenderer {
             height,
             indices_per_pixel,
             portioner: Portioner::new(width, height, num_rows, num_cols),
-            layers: vec![Layer::default()],
         }
     }
 
     pub fn draw_grid_outline(&mut self) {
         draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
-    }
-
-    pub fn prepare_draw_on_layer(
-        &mut self, item: &mut impl DrawDiff, layer_index: u32
-    ) {
-        let mut insert_at_index = 0;
-        let mut update_at_index = None;
-        let last_i = self.layers.len() - 1;
-        for (i, layer) in self.layers.iter_mut().enumerate() {
-            if layer.index == layer_index {
-                update_at_index = Some(i);
-                break;
-            } else if layer.index > layer_index {
-                insert_at_index = i;
-                break;
-            } else if i == last_i {
-                insert_at_index = i + 1;
-                break;
-            }
-        }
-        if let Some(i) = update_at_index {
-            self.layers[i].updates.push(Update {
-
-            });
-        } else {
-            self.layers.insert(insert_at_index, Layer {
-                index: layer_index,
-                updates: vec![Update {
-
-                }],
-            });
-        }
     }
 
     pub fn draw(&mut self, item: &mut impl DrawDiff) {
@@ -443,10 +497,12 @@ mod tests {
 
     struct MyStruct {}
     impl DrawDiff for MyStruct {
-        fn get_previous_bounds(&self) -> Option<Rect> { todo!() }
-        fn get_current_bounds(&self) -> Rect { todo!() }
-        fn set_previous_bounds_to_current(&mut self) { todo!() }
-        fn get_current_pixels(&self) -> DrawPixels { todo!() }
+        fn get_previous_bounds(&self) -> Option<Rect> { None }
+        fn get_current_bounds(&self) -> Rect { Rect { x: 0, y: 0, h: 0, w: 0 } }
+        fn set_previous_bounds_to_current(&mut self) { }
+        fn get_current_pixels(&self) -> DrawPixels { DrawPixels::PixelColor(RgbaPixel {
+            r: 0, g: 0, b: 0, a: 0,
+        }) }
     }
 
     #[test]
@@ -600,9 +656,7 @@ mod tests {
 
     #[test]
     fn layering_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = LayerRenderer::default();
         let mut draw_item = MyStruct {};
         p.prepare_draw_on_layer(&mut draw_item, 1000);
         assert_eq!(p.layers.len(), 2);
