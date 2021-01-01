@@ -470,6 +470,125 @@ impl PortionRenderer {
         draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
     }
 
+    pub fn object_needs_drawing(&mut self, object_index: usize) -> bool {
+        let object = &self.objects[object_index];
+        match object.previous_bounds {
+            Some(prev_bounds) => {
+                let current_bounds = object.current_bounds;
+                current_bounds.x != prev_bounds.x ||
+                current_bounds.y != prev_bounds.y ||
+                current_bounds.w != prev_bounds.w ||
+                current_bounds.h != prev_bounds.h
+            }
+            None => true,
+        }
+    }
+
+    pub fn move_object_x_by(&mut self, object_index: usize, by: i32) {
+        if by < 0 {
+            let current_x = self.objects[object_index].current_bounds.x;
+            let by = (0 - by) as u32;
+            if current_x >= by {
+                self.objects[object_index].current_bounds.x -= by;
+            }
+        } else {
+            self.objects[object_index].current_bounds.x += by as u32;
+        }
+    }
+
+    pub fn move_object_y_by(&mut self, object_index: usize, by: i32) {
+        if by < 0 {
+            let current_y = self.objects[object_index].current_bounds.y;
+            let by = (0 - by) as u32;
+            if current_y >= by {
+                self.objects[object_index].current_bounds.y -= by;
+            }
+        } else {
+            self.objects[object_index].current_bounds.y += by as u32;
+        }
+    }
+
+    pub fn draw_object(&mut self, object_index: usize) {
+        let mut object = &mut self.objects[object_index];
+        if let Some(prev) = object.previous_bounds {
+            let prev_x = prev.x;
+            let prev_y = prev.y;
+            let prev_w = prev.w;
+            let prev_h = prev.h;
+            for i in prev_y..(prev_y + prev_h) {
+                for j in prev_x..(prev_x + prev_w) {
+                    self.portioner.take_pixel(j, i);
+                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                    let red_index = red_index as usize;
+                    // TODO: why clear to 0, shouldnt it clear to
+                    // what was underneath??
+                    self.pixel_buffer[red_index] = self.clear_buffer[red_index];
+                    self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
+                    self.pixel_buffer[red_index + 2] = self.clear_buffer[red_index + 2];
+                    self.pixel_buffer[red_index + 3] = self.clear_buffer[red_index + 3];
+                }
+            }
+        }
+
+        let now = object.current_bounds;
+        let now_x = now.x;
+        let now_y = now.y;
+        let now_w = now.w;
+        let now_h = now.h;
+        let item_pixels = match object.texture_color {
+            Some(rgba_pixel) => {
+                for i in now_y..(now_y + now_h) {
+                    for j in now_x..(now_x + now_w) {
+                        self.portioner.take_pixel(j, i);
+                        let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                        let red_index = red_index as usize;
+                        // TODO: pixel format???
+                        self.clear_buffer[red_index] = self.pixel_buffer[red_index];
+                        self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
+                        self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
+                        self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
+
+                        self.pixel_buffer[red_index] = rgba_pixel.r;
+                        self.pixel_buffer[red_index + 1] = rgba_pixel.g;
+                        self.pixel_buffer[red_index + 2] = rgba_pixel.b;
+                        self.pixel_buffer[red_index + 3] = rgba_pixel.a;
+                    }
+                }
+                object.previous_bounds = Some(object.current_bounds);
+                return;
+            }
+            None => {
+                &self.textures[object.texture_index]
+            }
+        };
+
+        // if we got here then that means item.get_current_pixels
+        // returns an actual vec of pixels, so iterate over those
+        // and keep track of the pixel index... its up to
+        // the item to ensure that this vec of pixels is the same
+        // dimension as the bounds it gave us in item.get_current_bounds()...
+        let mut item_pixel_index = 0;
+        for i in now_y..(now_y + now_h) {
+            for j in now_x..(now_x + now_w) {
+                self.portioner.take_pixel(j, i);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: pixel format???
+                self.clear_buffer[red_index] = self.pixel_buffer[red_index];
+                self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
+                self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
+                self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
+
+                self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
+                self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
+                self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
+                self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
+                item_pixel_index += 4;
+            }
+        }
+        object.previous_bounds = Some(object.current_bounds);
+    }
+
     pub fn draw(&mut self, item: &mut impl DrawDiff) {
         if let Some(prev) = item.get_previous_bounds() {
             let prev_x = prev.x;
