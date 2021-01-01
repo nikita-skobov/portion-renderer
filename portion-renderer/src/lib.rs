@@ -29,9 +29,35 @@ pub struct PortionRenderer {
     height: u32,
     indices_per_pixel: u32, // probably only 3 or 4
 
+    textures: Vec<Vec<u8>>,
+    layers: Vec<ManagedLayer>,
+    objects: Vec<Object>,
+
     // TODO: need to know what
     // order the pixels are in
     // pixel_format: PixelFormatEnum
+}
+
+pub struct ManagedLayer {
+    index: u32,
+    objects: Vec<usize>,
+}
+
+pub struct Object {
+    /// most objects will have a reference
+    /// to a vector of their texture pixels
+    texture_index: usize,
+    /// some objects might choose to be a single color,
+    /// in which case they will be rendered this pixel color
+    texture_color: Option<RgbaPixel>,
+
+    current_bounds: Rect,
+    previous_bounds: Option<Rect>,
+}
+
+pub enum ObjectTextureType {
+    ObjectTextureColor(RgbaPixel),
+    ObjectTextureVec(Vec<u8>),
 }
 
 pub struct LayerRenderer<'a> {
@@ -370,8 +396,74 @@ impl PortionRenderer {
             width,
             height,
             indices_per_pixel,
+            layers: vec![ManagedLayer { index: 0, objects: vec![] }],
+            textures: vec![],
+            objects: vec![],
             portioner: Portioner::new(width, height, num_rows, num_cols),
         }
+    }
+
+    /// returns the layer's actual index of the Vec its in,
+    /// whereas the layer_index: u32 is a human friendly index
+    /// like 0, 1000, 1001, etc.
+    pub fn get_or_make_layer(&mut self, layer_index: u32) -> usize {
+        let mut insert_at_index = 0;
+        let mut update_at_index = None;
+        let last_i = self.layers.len() - 1;
+        for (i, layer) in self.layers.iter().enumerate() {
+            if layer.index == layer_index {
+                update_at_index = Some(i);
+                break;
+            } else if layer.index > layer_index {
+                insert_at_index = i;
+                break;
+            } else if i == last_i {
+                insert_at_index = i + 1;
+                break;
+            }
+        }
+
+        if let Some(i) = update_at_index {
+            i
+        } else {
+            self.layers.push(ManagedLayer {
+                index: layer_index,
+                objects: vec![],
+            });
+            insert_at_index
+        }
+    }
+
+    pub fn create_object(&mut self, layer_index: u32, bounds: Rect, texture: ObjectTextureType) -> usize {
+        let (texture_index, texture_color) = match texture {
+            ObjectTextureType::ObjectTextureColor(c) => {
+                (0, Some(c))
+            }
+            ObjectTextureType::ObjectTextureVec(v) => {
+                let next_index = self.textures.len();
+                self.textures.push(v);
+                (next_index, None)
+            }
+        };
+        let new_object_index = self.objects.len();
+        let new_object = Object {
+            texture_index: texture_index,
+            texture_color: texture_color,
+            current_bounds: bounds,
+            previous_bounds: None
+        };
+        self.objects.push(new_object);
+        let layer_index = self.get_or_make_layer(layer_index);
+        self.layers[layer_index].objects.push(new_object_index);
+        new_object_index
+    }
+
+    pub fn create_object_from_color(&mut self, layer_index: u32, bounds: Rect, color: RgbaPixel) -> usize {
+        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureColor(color))
+    }
+
+    pub fn create_object_from_texture(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>) -> usize {
+        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureVec(texture))
     }
 
     pub fn draw_grid_outline(&mut self) {
@@ -692,5 +784,21 @@ mod tests {
         let index_2 = &p.layers[2];
         assert_eq!(index_1.index, 400);
         assert_eq!(index_2.updates.len(), 2);
+    }
+
+    #[test]
+    fn managed_layering_works() {
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        assert_eq!(p.layers.len(), 1);
+        p.create_object_from_color(0,
+            Rect { x: 0, y: 0, w: 0, h: 0 },
+            RgbaPixel { r: 0, g: 0, b: 0, a: 0 },
+        );
+        assert_eq!(p.layers.len(), 1);
+        assert_eq!(p.objects.len(), 1);
+        assert_eq!(p.textures.len(), 0);
+        assert_eq!(p.layers[0].objects.len(), 1);
     }
 }
