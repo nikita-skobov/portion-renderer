@@ -45,6 +45,18 @@ pub struct Layer {
     updates: Vec<Update>,
 }
 
+pub struct RgbaPixel {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+
+pub enum DrawPixels<'a> {
+    PixelVec(&'a Vec<u8>),
+    PixelColor(RgbaPixel),
+}
+
 pub trait DrawDiff {
     /// returns an option of a rect because
     /// if its the first time being rendered, there
@@ -52,6 +64,7 @@ pub trait DrawDiff {
     fn get_previous_bounds(&self) -> Option<Rect>;
     fn get_current_bounds(&self) -> Rect;
     fn set_previous_bounds_to_current(&mut self);
+    fn get_current_pixels(&self) -> DrawPixels;
 }
 
 pub struct Rect {
@@ -335,16 +348,44 @@ impl PortionRenderer {
         let now_y = now.y;
         let now_w = now.w;
         let now_h = now.h;
+        let item_pixels = item.get_current_pixels();
+        let item_pixels = match item_pixels {
+            DrawPixels::PixelVec(v) => v,
+            DrawPixels::PixelColor(rgba_pixel) => {
+                for i in now_y..(now_y + now_h) {
+                    for j in now_x..(now_x + now_w) {
+                        self.portioner.take_pixel(j, i);
+                        let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                        let red_index = red_index as usize;
+                        // TODO: pixel format???
+                        self.pixel_buffer[red_index] = rgba_pixel.r;
+                        self.pixel_buffer[red_index + 1] = rgba_pixel.g;
+                        self.pixel_buffer[red_index + 2] = rgba_pixel.b;
+                        self.pixel_buffer[red_index + 3] = rgba_pixel.a;
+                    }
+                }
+                item.set_previous_bounds_to_current();
+                return;
+            }
+        };
+
+        // if we got here then that means item.get_current_pixels
+        // returns an actual vec of pixels, so iterate over those
+        // and keep track of the pixel index... its up to
+        // the item to ensure that this vec of pixels is the same
+        // dimension as the bounds it gave us in item.get_current_bounds()...
+        let mut item_pixel_index = 0;
         for i in now_y..(now_y + now_h) {
             for j in now_x..(now_x + now_w) {
                 self.portioner.take_pixel(j, i);
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
-                // TODO: allow drawdiff item to decide its own pixels...
-                self.pixel_buffer[red_index] = 255;
-                self.pixel_buffer[red_index + 1] = 0;
-                self.pixel_buffer[red_index + 2] = 0;
-                self.pixel_buffer[red_index + 3] = 0;
+                // TODO: pixel format???
+                self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
+                self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
+                self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
+                self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
+                item_pixel_index += 4;
             }
         }
 
@@ -405,6 +446,7 @@ mod tests {
         fn get_previous_bounds(&self) -> Option<Rect> { todo!() }
         fn get_current_bounds(&self) -> Rect { todo!() }
         fn set_previous_bounds_to_current(&mut self) { todo!() }
+        fn get_current_pixels(&self) -> DrawPixels { todo!() }
     }
 
     #[test]
