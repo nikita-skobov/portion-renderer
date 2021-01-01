@@ -28,9 +28,21 @@ pub struct PortionRenderer {
     height: u32,
     indices_per_pixel: u32, // probably only 3 or 4
 
+    layers: Vec<Layer>,
+
     // TODO: need to know what
     // order the pixels are in
     // pixel_format: PixelFormatEnum
+}
+
+pub struct Update {
+
+}
+
+#[derive(Default)]
+pub struct Layer {
+    index: u32,
+    updates: Vec<Update>,
 }
 
 pub trait DrawDiff {
@@ -257,11 +269,44 @@ impl PortionRenderer {
             height,
             indices_per_pixel,
             portioner: Portioner::new(width, height, num_rows, num_cols),
+            layers: vec![Layer::default()],
         }
     }
 
     pub fn draw_grid_outline(&mut self) {
         draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
+    }
+
+    pub fn prepare_draw_on_layer(
+        &mut self, item: &mut impl DrawDiff, layer_index: u32
+    ) {
+        let mut insert_at_index = 0;
+        let mut update_at_index = None;
+        let last_i = self.layers.len() - 1;
+        for (i, layer) in self.layers.iter_mut().enumerate() {
+            if layer.index == layer_index {
+                update_at_index = Some(i);
+                break;
+            } else if layer.index > layer_index {
+                insert_at_index = i;
+                break;
+            } else if i == last_i {
+                insert_at_index = i + 1;
+                break;
+            }
+        }
+        if let Some(i) = update_at_index {
+            self.layers[i].updates.push(Update {
+
+            });
+        } else {
+            self.layers.insert(insert_at_index, Layer {
+                index: layer_index,
+                updates: vec![Update {
+
+                }],
+            });
+        }
     }
 
     pub fn draw(&mut self, item: &mut impl DrawDiff) {
@@ -354,6 +399,13 @@ mod tests {
 
     const TEST_WIDTH: u32 = 800;
     const TEST_HEIGHT: u32 = 600;
+
+    struct MyStruct {}
+    impl DrawDiff for MyStruct {
+        fn get_previous_bounds(&self) -> Option<Rect> { todo!() }
+        fn get_current_bounds(&self) -> Rect { todo!() }
+        fn set_previous_bounds_to_current(&mut self) { todo!() }
+    }
 
     #[test]
     fn divides_properly() {
@@ -502,5 +554,35 @@ mod tests {
         for griditem in p.grid.iter() {
             assert!(!griditem.active);
         }
+    }
+
+    #[test]
+    fn layering_works() {
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        let mut draw_item = MyStruct {};
+        p.prepare_draw_on_layer(&mut draw_item, 1000);
+        assert_eq!(p.layers.len(), 2);
+        let index_0 = &p.layers[0];
+        let index_1 = &p.layers[1];
+        assert_eq!(index_0.index, 0);
+        assert_eq!(index_1.index, 1000);
+
+        // works to update existing layer
+        let mut draw_item2 = MyStruct {};
+        p.prepare_draw_on_layer(&mut draw_item2, 1000);
+        assert_eq!(p.layers.len(), 2);
+        let index_1 = &p.layers[1];
+        assert_eq!(index_1.updates.len(), 2);
+
+        // works to insert between two existing layers
+        let mut draw_item3 = MyStruct {};
+        p.prepare_draw_on_layer(&mut draw_item3, 400);
+        assert_eq!(p.layers.len(), 3);
+        let index_1 = &p.layers[1];
+        let index_2 = &p.layers[2];
+        assert_eq!(index_1.index, 400);
+        assert_eq!(index_2.updates.len(), 2);
     }
 }
