@@ -7,10 +7,10 @@ macro_rules! get_red_index {
     };
 }
 
-const PIXEL_BLACK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 0 };
-const PIXEL_RED: RgbaPixel = RgbaPixel { r: 255, g: 0, b: 0, a: 0 };
-const PIXEL_GREEN: RgbaPixel = RgbaPixel { r: 0, g: 255, b: 0, a: 0 };
-const PIXEL_BLUE: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 255, a: 0 };
+pub const PIXEL_BLACK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 0 };
+pub const PIXEL_RED: RgbaPixel = RgbaPixel { r: 255, g: 0, b: 0, a: 0 };
+pub const PIXEL_GREEN: RgbaPixel = RgbaPixel { r: 0, g: 255, b: 0, a: 0 };
+pub const PIXEL_BLUE: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 255, a: 0 };
 
 #[derive(Default, Clone)]
 pub struct GridPortion {
@@ -94,22 +94,6 @@ pub enum ObjectTextureType {
     ObjectTextureVec(Vec<u8>),
 }
 
-pub struct LayerRenderer<'a> {
-    layers: Vec<Layer<'a>>,
-}
-
-pub struct Update<'a> {
-    prev_bounds: Option<Rect>,
-    current_bounds: Rect,
-    pixel_data: DrawPixels<'a>,
-}
-
-#[derive(Default)]
-pub struct Layer<'a> {
-    index: u32,
-    updates: Vec<Update<'a>>,
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct RgbaPixel {
     pub r: u8,
@@ -122,16 +106,6 @@ pub struct RgbaPixel {
 pub enum DrawPixels<'a> {
     PixelVec(&'a Vec<u8>),
     PixelColor(RgbaPixel),
-}
-
-pub trait DrawDiff {
-    /// returns an option of a rect because
-    /// if its the first time being rendered, there
-    /// is nothing to diff
-    fn get_previous_bounds(&self) -> Option<Rect>;
-    fn get_current_bounds(&self) -> Rect;
-    fn set_previous_bounds_to_current(&mut self);
-    fn get_current_pixels(&self) -> DrawPixels;
 }
 
 #[derive(Copy, Clone, Debug, PartialEq)]
@@ -364,23 +338,6 @@ impl Portioner {
     }
 }
 
-impl<'a> DrawDiff for Update<'a> {
-    fn get_previous_bounds(&self) -> Option<Rect> {
-        self.prev_bounds
-    }
-
-    fn get_current_bounds(&self) -> Rect {
-        self.current_bounds
-    }
-    // this should be called by the user after
-    // calling prepare_draw_on_layer
-    fn set_previous_bounds_to_current(&mut self) {}
-
-    fn get_current_pixels(&self) -> DrawPixels {
-        self.pixel_data
-    }
-}
-
 /// Dont use this in a real program
 /// this is just convenient for debugging
 /// the issue with using this in a real program is its not very
@@ -419,69 +376,6 @@ impl AsMut<Portioner> for PortionRenderer {
 impl AsMut<Vec<u8>> for PortionRenderer {
     fn as_mut(&mut self) -> &mut Vec<u8> { &mut self.pixel_buffer }
 }
-
-impl<'a> Default for LayerRenderer<'a> {
-    fn default() -> Self {
-        LayerRenderer { layers: vec![Layer::default()] }
-    }
-}
-
-impl<'a> LayerRenderer<'a> {
-    pub fn prepare_draw_on_layer(&mut self, item: &'a impl DrawDiff, layer_index: u32) {
-        let mut insert_at_index = 0;
-        let mut update_at_index = None;
-        let last_i = self.layers.len() - 1;
-        for (i, layer) in self.layers.iter_mut().enumerate() {
-            if layer.index == layer_index {
-                update_at_index = Some(i);
-                break;
-            } else if layer.index > layer_index {
-                insert_at_index = i;
-                break;
-            } else if i == last_i {
-                insert_at_index = i + 1;
-                break;
-            }
-        }
-
-        let prev_bounds = item.get_previous_bounds();
-        let current_bounds = item.get_current_bounds();
-        let pixel_data = item.get_current_pixels();
-
-        if let Some(i) = update_at_index {
-            self.layers[i].updates.push(Update {
-                prev_bounds,
-                current_bounds,
-                pixel_data,
-            });
-        } else {
-            self.layers.insert(insert_at_index, Layer {
-                index: layer_index,
-                updates: vec![Update {
-                    prev_bounds,
-                    current_bounds,
-                    pixel_data,
-                }],
-            });
-        }
-    }
-
-    pub fn draw_all_layers(&mut self, renderer: &mut PortionRenderer) {
-        // TODO: can we avoid drawing bottom layers
-        // if a top layer fully covers it up?
-        let mut updates = vec![];
-        for layer in self.layers.iter_mut() {
-            // for each layer, draw every item
-            for item in layer.updates.drain(..) {
-                updates.push(item);
-            }
-        }
-        for mut update in updates {
-            renderer.draw(&mut update);
-        }
-    }
-}
-
 
 impl PortionRenderer {
     pub fn new(
@@ -784,12 +678,12 @@ impl PortionRenderer {
                     ) { continue; }
 
                     // if that fails, use the clear buffer
-                    let clearpix = RgbaPixel {
-                        r: self.clear_buffer[red_index],
-                        g: self.clear_buffer[red_index + 1],
-                        b: self.clear_buffer[red_index + 2],
-                        a: self.clear_buffer[red_index + 3],
-                    };
+                    // let clearpix = RgbaPixel {
+                    //     r: self.clear_buffer[red_index],
+                    //     g: self.clear_buffer[red_index + 1],
+                    //     b: self.clear_buffer[red_index + 2],
+                    //     a: self.clear_buffer[red_index + 3],
+                    // };
                     // println!("Undoing ({}, {}) via clearbuffer: {:?}", j, i, clearpix);
                     self.pixel_buffer[red_index] = self.clear_buffer[red_index];
                     self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
@@ -859,86 +753,6 @@ impl PortionRenderer {
         }
         object.previous_bounds = Some(object.current_bounds);
     }
-
-    pub fn draw(&mut self, item: &mut impl DrawDiff) {
-        if let Some(prev) = item.get_previous_bounds() {
-            let prev_x = prev.x;
-            let prev_y = prev.y;
-            let prev_w = prev.w;
-            let prev_h = prev.h;
-            for i in prev_y..(prev_y + prev_h) {
-                for j in prev_x..(prev_x + prev_w) {
-                    self.portioner.take_pixel(j, i);
-                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                    let red_index = red_index as usize;
-                    // TODO: why clear to 0, shouldnt it clear to
-                    // what was underneath??
-                    self.pixel_buffer[red_index] = self.clear_buffer[red_index];
-                    self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
-                    self.pixel_buffer[red_index + 2] = self.clear_buffer[red_index + 2];
-                    self.pixel_buffer[red_index + 3] = self.clear_buffer[red_index + 3];
-                }
-            }
-        }
-
-        let now = item.get_current_bounds();
-        let now_x = now.x;
-        let now_y = now.y;
-        let now_w = now.w;
-        let now_h = now.h;
-        let item_pixels = item.get_current_pixels();
-        let item_pixels = match item_pixels {
-            DrawPixels::PixelVec(v) => v,
-            DrawPixels::PixelColor(rgba_pixel) => {
-                for i in now_y..(now_y + now_h) {
-                    for j in now_x..(now_x + now_w) {
-                        self.portioner.take_pixel(j, i);
-                        let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                        let red_index = red_index as usize;
-                        // TODO: pixel format???
-                        self.clear_buffer[red_index] = self.pixel_buffer[red_index];
-                        self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
-                        self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
-                        self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
-
-                        self.pixel_buffer[red_index] = rgba_pixel.r;
-                        self.pixel_buffer[red_index + 1] = rgba_pixel.g;
-                        self.pixel_buffer[red_index + 2] = rgba_pixel.b;
-                        self.pixel_buffer[red_index + 3] = rgba_pixel.a;
-                    }
-                }
-                item.set_previous_bounds_to_current();
-                return;
-            }
-        };
-
-        // if we got here then that means item.get_current_pixels
-        // returns an actual vec of pixels, so iterate over those
-        // and keep track of the pixel index... its up to
-        // the item to ensure that this vec of pixels is the same
-        // dimension as the bounds it gave us in item.get_current_bounds()...
-        let mut item_pixel_index = 0;
-        for i in now_y..(now_y + now_h) {
-            for j in now_x..(now_x + now_w) {
-                self.portioner.take_pixel(j, i);
-                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                let red_index = red_index as usize;
-                // TODO: pixel format???
-                self.clear_buffer[red_index] = self.pixel_buffer[red_index];
-                self.clear_buffer[red_index + 1] = self.pixel_buffer[red_index + 1];
-                self.clear_buffer[red_index + 2] = self.pixel_buffer[red_index + 2];
-                self.clear_buffer[red_index + 3] = self.pixel_buffer[red_index + 3];
-
-                self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
-                self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
-                self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
-                self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
-                item_pixel_index += 4;
-            }
-        }
-
-        item.set_previous_bounds_to_current();
-    }
 }
 
 pub fn draw_grid_outline(
@@ -992,16 +806,6 @@ mod tests {
     const PIX2: RgbaPixel = RgbaPixel { r: 2, g: 2, b: 2, a: 2 };
     const PIX3: RgbaPixel = RgbaPixel { r: 3, g: 3, b: 3, a: 3 };
     const PIX4: RgbaPixel = RgbaPixel { r: 4, g: 4, b: 4, a: 4 };
-
-    struct MyStruct {}
-    impl DrawDiff for MyStruct {
-        fn get_previous_bounds(&self) -> Option<Rect> { None }
-        fn get_current_bounds(&self) -> Rect { Rect { x: 0, y: 0, h: 0, w: 0 } }
-        fn set_previous_bounds_to_current(&mut self) { }
-        fn get_current_pixels(&self) -> DrawPixels { DrawPixels::PixelColor(RgbaPixel {
-            r: 0, g: 0, b: 0, a: 0,
-        }) }
-    }
 
     #[test]
     fn divides_properly() {
@@ -1153,34 +957,6 @@ mod tests {
     }
 
     #[test]
-    fn layering_works() {
-        let mut p = LayerRenderer::default();
-        let mut draw_item = MyStruct {};
-        p.prepare_draw_on_layer(&mut draw_item, 1000);
-        assert_eq!(p.layers.len(), 2);
-        let index_0 = &p.layers[0];
-        let index_1 = &p.layers[1];
-        assert_eq!(index_0.index, 0);
-        assert_eq!(index_1.index, 1000);
-
-        // works to update existing layer
-        let mut draw_item2 = MyStruct {};
-        p.prepare_draw_on_layer(&mut draw_item2, 1000);
-        assert_eq!(p.layers.len(), 2);
-        let index_1 = &p.layers[1];
-        assert_eq!(index_1.updates.len(), 2);
-
-        // works to insert between two existing layers
-        let mut draw_item3 = MyStruct {};
-        p.prepare_draw_on_layer(&mut draw_item3, 400);
-        assert_eq!(p.layers.len(), 3);
-        let index_1 = &p.layers[1];
-        let index_2 = &p.layers[2];
-        assert_eq!(index_1.index, 400);
-        assert_eq!(index_2.updates.len(), 2);
-    }
-
-    #[test]
     fn managed_layering_works() {
         let mut p = PortionRenderer::new(
             10, 10, 10, 10
@@ -1214,8 +990,6 @@ mod tests {
         let mut actual_string = String::from("[");
         let mut should_panic = false;
         for pixel_color in map {
-            let debug_x = x;
-            let debug_y = y;
             let pixel_slice: RgbaPixel = p[(x, y)].into();
             let mut should_newline = false;
 
@@ -1331,7 +1105,7 @@ mod tests {
         let mut p = PortionRenderer::new(
             10, 10, 10, 10
         );
-        let green = p.create_object_from_color(
+        let _green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
         );
@@ -1373,7 +1147,7 @@ mod tests {
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
         );
-        let red = p.create_object_from_color(
+        let _red = p.create_object_from_color(
             1, Rect { x: 2, y: 0, w: 2, h: 2 },
             PIXEL_RED
         );
