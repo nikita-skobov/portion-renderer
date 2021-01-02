@@ -507,6 +507,13 @@ impl PortionRenderer {
         }
     }
 
+    /// clones the current visible buffer to the clear buffer
+    /// useful when you want to render an intial scene, and
+    /// then use that as the background
+    pub fn set_clear_buffer(&mut self) {
+        self.clear_buffer = self.pixel_buffer.clone();
+    }
+
     /// returns the layer's actual index of the Vec its in,
     /// whereas the layer_index: u32 is a human friendly index
     /// like 0, 1000, 1001, etc.
