@@ -650,6 +650,25 @@ impl PortionRenderer {
         false
     }
 
+    pub fn draw(&mut self, pixels: &[u8], bounds: Rect) {
+        let x = bounds.x;
+        let y = bounds.y;
+        let w = bounds.w;
+        let h = bounds.h;
+        let mut pixels_index = 0;
+        for i in y..(y + h) {
+            for j in x..(x + w) {
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
+                self.pixel_buffer[red_index] = pixels[pixels_index];
+                self.pixel_buffer[red_index + 1] = pixels[pixels_index + 1];
+                self.pixel_buffer[red_index + 2] = pixels[pixels_index + 2];
+                self.pixel_buffer[red_index + 3] = pixels[pixels_index + 3];
+
+                pixels_index += 4;
+            }
+        }
+    }
+
     pub fn draw_object(&mut self, object_index: usize, skip_above: AboveRegions, skip_below: BelowRegions) {
         // println!("\n----------------");
         let previous_bounds = self.objects[object_index].previous_bounds;
