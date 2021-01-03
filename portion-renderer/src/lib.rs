@@ -836,6 +836,10 @@ impl PortionRenderer {
         } else if let ObjectRenderMode::RenderToFit = object.render_mode {
             let item_pixels_len = item_pixels.len();
             let item_height = (item_pixels_len / indices_per_pixel) / item_width;
+            // TODO: handle shrink image?
+            if now_w < item_width as u32 || now_h < item_height as u32 {
+                panic!("texture shrinking not implemented yet");
+            }
             let width_stretch_factor = now_w / item_width as u32;
             let height_stretch_factor = now_h / item_height as u32;
             let mut pixel_y = 0;
@@ -844,12 +848,18 @@ impl PortionRenderer {
                 if i_diff != 0 && i_diff % height_stretch_factor == 0 {
                     pixel_y += 1;
                 }
+                if pixel_y >= item_height {
+                    pixel_y = item_height - 1;
+                }
 
                 let mut pixel_x = 0;
                 for j in now_x..(now_x + now_w) {
                     let j_diff = j - now_x;
                     if j_diff != 0 && j_diff % width_stretch_factor == 0 {
                         pixel_x += 1;
+                    }
+                    if pixel_x >= item_width {
+                        pixel_x = item_width - 1;
                     }
 
                     if should_skip_point(&skip_above.above_my_current, j, i) {
@@ -1628,6 +1638,52 @@ mod tests {
             'x', 'x', '1', '1', '2', '2',
             'x', 'x', '3', '3', '4', '4',
             'x', 'x', '3', '3', '4', '4',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 6);
+
+        // test if can be stretched big weird ratio
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        // here we have a 3x2 image, stretched to a 4x4 bounds
+        // so vertically the stretch is even, but horizontally
+        // one of the columns will be wider than the others
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 4, h: 4 },
+            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
+            3
+        );
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', '3', '3',
+            'x', 'x', '1', '2', '3', '3',
+            'x', 'x', '4', 'b', 'g', 'g',
+            'x', 'x', '4', 'b', 'g', 'g',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 6);
+
+        // test if can be stretched big weird ratio vertically
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        // here we have a 2x3 image, stretched to a 4x4 bounds
+        // so horizontally the stretch is even, but vertically
+        // one of the rows will be taller than the others
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 4, h: 4 },
+            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
+            2
+        );
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '1', '2', '2',
+            'x', 'x', '3', '3', '4', '4',
+            'x', 'x', 'b', 'b', 'g', 'g',
+            'x', 'x', 'b', 'b', 'g', 'g',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 6);
     }
