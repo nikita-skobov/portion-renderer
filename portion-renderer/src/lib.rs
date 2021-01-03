@@ -683,8 +683,16 @@ impl PortionRenderer {
             let texture_height = (texture_pixels_len / indices_per_pixel) / texture_width;
             let width_stretch_factor = current_bounds.w / texture_width as u32;
             let height_stretch_factor = current_bounds.h / texture_height as u32;
+
             let local_x = local_x / width_stretch_factor;
             let local_y = local_y / height_stretch_factor;
+            let local_x = if local_x >= texture_width as u32 {
+                texture_width as u32 - 1
+            } else { local_x };
+            let local_y = if local_y >= texture_height as u32 {
+                texture_height as u32 - 1
+            } else { local_y };
+
             let red_index = get_red_index!(local_x, local_y, texture_width as u32, self.indices_per_pixel) as usize;
             let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+indices_per_pixel)) {
                 Some(u8_slice) => u8_slice.into(),
@@ -1292,6 +1300,67 @@ mod tests {
         assert_eq!(pixel, PIX3);
         let pixel = p.get_pixel_from_object_at(textured, 4, 3).unwrap();
         assert_eq!(pixel, PIX4);
+
+        // that works for an easy 1-2 scale, but what about a weird scale?
+        // test if can be stretched big weird ratio
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        // here we have a 3x2 image, stretched to a 4x4 bounds
+        // so vertically the stretch is even, but horizontally
+        // one of the columns will be wider than the others
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 4, h: 4 },
+            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
+            3
+        );
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', '3', '3',
+            'x', 'x', '1', '2', '3', '3',
+            'x', 'x', '4', 'b', 'g', 'g',
+            'x', 'x', '4', 'b', 'g', 'g',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 6);
+
+        println!("Here:");
+        let pixel = p.get_pixel_from_object_at(textured, 2, 1).unwrap();
+        assert_eq!(pixel, PIX1);
+        let pixel = p.get_pixel_from_object_at(textured, 3, 1).unwrap();
+        assert_eq!(pixel, PIX2);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 1).unwrap();
+        assert_eq!(pixel, PIX3);
+        let pixel = p.get_pixel_from_object_at(textured, 5, 1).unwrap();
+        assert_eq!(pixel, PIX3);
+
+        let pixel = p.get_pixel_from_object_at(textured, 2, 2).unwrap();
+        assert_eq!(pixel, PIX1);
+        let pixel = p.get_pixel_from_object_at(textured, 3, 2).unwrap();
+        assert_eq!(pixel, PIX2);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 2).unwrap();
+        assert_eq!(pixel, PIX3);
+        let pixel = p.get_pixel_from_object_at(textured, 5, 2).unwrap();
+        assert_eq!(pixel, PIX3);
+
+        let pixel = p.get_pixel_from_object_at(textured, 2, 3).unwrap();
+        assert_eq!(pixel, PIX4);
+        let pixel = p.get_pixel_from_object_at(textured, 3, 3).unwrap();
+        assert_eq!(pixel, PIXEL_BLUE);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 3).unwrap();
+        assert_eq!(pixel, PIXEL_GREEN);
+        let pixel = p.get_pixel_from_object_at(textured, 5, 3).unwrap();
+        assert_eq!(pixel, PIXEL_GREEN);
+
+        let pixel = p.get_pixel_from_object_at(textured, 2, 4).unwrap();
+        assert_eq!(pixel, PIX4);
+        let pixel = p.get_pixel_from_object_at(textured, 3, 4).unwrap();
+        assert_eq!(pixel, PIXEL_BLUE);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 4).unwrap();
+        assert_eq!(pixel, PIXEL_GREEN);
+        let pixel = p.get_pixel_from_object_at(textured, 5, 4).unwrap();
+        assert_eq!(pixel, PIXEL_GREEN);
     }
 
     #[test]
