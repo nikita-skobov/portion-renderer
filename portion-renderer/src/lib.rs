@@ -650,6 +650,33 @@ impl PortionRenderer {
         false
     }
 
+    pub fn draw_stretched(&mut self, pixels: &[u8], pixel_width: u32, pixel_height: u32) {
+        let width_stretch_factor = self.width / pixel_width;
+        let height_stretch_factor = self.height / pixel_height;
+        let width = self.width;
+        let height = self.height;
+        let mut pixel_y = 0;
+        for i in 0..height {
+            let mut pixel_x = 0;
+            for j in 0..width {
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
+                let pixel_red_index = get_red_index!(pixel_x, pixel_y, pixel_width, 4) as usize;
+
+                self.pixel_buffer[red_index] = pixels[pixel_red_index];
+                self.pixel_buffer[red_index + 1] = pixels[pixel_red_index + 1];
+                self.pixel_buffer[red_index + 2] = pixels[pixel_red_index + 2];
+                self.pixel_buffer[red_index + 3] = pixels[pixel_red_index + 3];
+
+                if j != 0 && j % width_stretch_factor == 0 {
+                    pixel_x += 1;
+                }
+            }
+            if i != 0 && i % height_stretch_factor == 0 {
+                pixel_y += 1;
+            }
+        }
+    }
+
     pub fn draw(&mut self, pixels: &[u8], bounds: Rect) {
         let x = bounds.x;
         let y = bounds.y;
