@@ -164,6 +164,19 @@ pub fn should_skip_point(skip_regions: &Vec<Rect>, x: u32, y: u32) -> bool {
     false
 }
 
+pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
+    let mut out_vec = vec![];
+
+    for pixel in pixel_vec {
+        out_vec.push(pixel.r);
+        out_vec.push(pixel.g);
+        out_vec.push(pixel.b);
+        out_vec.push(pixel.a);
+    }
+
+    out_vec
+}
+
 impl ManagedLayer {
     /// ManagedLayer.objects[] contains a vec of object indices
     /// that exist on the PortionRenderer. this method takes one of those
