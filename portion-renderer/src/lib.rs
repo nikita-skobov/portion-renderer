@@ -1,6 +1,13 @@
 use grid::Grid;
-use std::{ops::Index, cmp};
+use std::cmp;
+use std::ops::Index;
 
+pub mod projection;
+pub mod transform;
+pub use projection::Projection;
+pub use transform::*;
+
+#[macro_export]
 macro_rules! get_red_index {
     ($x:expr, $y:expr, $w:expr, $indices_per_pixel:expr) => {
         $y * ($w * $indices_per_pixel) + ($x * $indices_per_pixel)
