@@ -55,6 +55,19 @@ pub struct ManagedLayer {
     updates: Vec<usize>,
 }
 
+pub enum ObjectRenderMode {
+    /// RenderAsMuchAsPossible will
+    /// render all of the objects texture that exists
+    /// and then stops if the texture is smaller than the objects bounds.
+    /// if the texture is larger than the bounds, then this mode
+    /// will render up to the bounds, and then discard the rest of
+    /// the texture
+    RenderAsMuchAsPossible,
+    /// RenderToFit will always stretch the texture
+    /// to fit it into the bounds
+    RenderToFit,
+}
+
 pub struct Object {
     /// most objects will have a reference
     /// to a vector of their texture pixels
@@ -66,6 +79,8 @@ pub struct Object {
     /// the index of the layer that this
     /// object exists on
     layer: usize,
+
+    render_mode: ObjectRenderMode,
 
     current_bounds: Rect,
     previous_bounds: Option<Rect>,
@@ -458,6 +473,7 @@ impl PortionRenderer {
             texture_color: texture_color,
             current_bounds: bounds,
             previous_bounds: None,
+            render_mode: ObjectRenderMode::RenderAsMuchAsPossible,
             layer: layer_index,
         };
         self.objects.push(new_object);
@@ -606,6 +622,10 @@ impl PortionRenderer {
             self.objects[object_index].current_bounds.y += by as u32;
             self.set_layer_update(object_index);
         }
+    }
+
+    pub fn set_object_render_mode(&mut self, object_index: usize, render_mode: ObjectRenderMode) {
+        self.objects[object_index].render_mode = render_mode;
     }
 
     pub fn get_pixel_from_object_at(&self, object_index: usize, x: u32, y: u32) -> Option<RgbaPixel> {
@@ -776,27 +796,34 @@ impl PortionRenderer {
 
         // if we got here then that means item.get_current_pixels
         // returns an actual vec of pixels, so iterate over those
-        // and keep track of the pixel index... its up to
-        // the item to ensure that this vec of pixels is the same
-        // dimension as the bounds it gave us in item.get_current_bounds()...
-        let mut item_pixel_index = 0;
-        for i in now_y..(now_y + now_h) {
-            for j in now_x..(now_x + now_w) {
-                if should_skip_point(&skip_above.above_my_current, j, i) {
-                    // println!("Skipping: ({}, {})", j, i);
-                    continue;
+        // and keep track of the pixel index...
+        if let ObjectRenderMode::RenderAsMuchAsPossible = object.render_mode {
+            let item_pixels_max = item_pixels.len();
+            let mut item_pixel_index = 0;
+            'outer: for i in now_y..(now_y + now_h) {
+                for j in now_x..(now_x + now_w) {
+                    if should_skip_point(&skip_above.above_my_current, j, i) {
+                        // println!("Skipping: ({}, {})", j, i);
+                        continue;
+                    }
+                    self.portioner.take_pixel(j, i);
+                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                    let red_index = red_index as usize;
+                    // TODO: pixel format???
+                    self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
+                    self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
+                    self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
+                    self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
+                    item_pixel_index += 4;
+                    if item_pixel_index >= item_pixels_max {
+                        break 'outer;
+                    }
                 }
-                self.portioner.take_pixel(j, i);
-                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                let red_index = red_index as usize;
-                // TODO: pixel format???
-                self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
-                self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
-                self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
-                self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
-                item_pixel_index += 4;
             }
+        } else if let ObjectRenderMode::RenderToFit = object.render_mode {
+
         }
+
         object.previous_bounds = Some(object.current_bounds);
     }
 }
@@ -1482,5 +1509,57 @@ mod tests {
             'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 4);
+    }
+
+    #[test]
+    fn render_mode_as_much_as_possible_works() {
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        // we purposefully dont give a 4th pixel
+        // to test if the rendering works
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 2, h: 2 },
+            texture_from(&[PIX1, PIX2, PIX3]),
+        );
+
+        // because its render as much as possible,
+        // the last pixel should not be rendered because the texture
+        // doesnt have enough pixels
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderAsMuchAsPossible);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2',
+            'x', 'x', '3', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 4);
+
+        // now if we instead have a texture that is bigger
+        // than the bounds of the object, then it should simply
+        // ignore the pixels after it reaches the end of the bounds
+
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 2, h: 2 },
+            texture_from(&[
+                PIX1, PIX2, PIX3,
+                PIX4, PIXEL_BLUE, PIXEL_BLUE,
+                PIXEL_BLUE, PIXEL_BLUE, PIXEL_BLUE,
+            ]),
+        );
+        // because its render as much as possible,
+        // the pixels after the bounds should not exist
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderAsMuchAsPossible);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', 'x',
+            'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
     }
 }
