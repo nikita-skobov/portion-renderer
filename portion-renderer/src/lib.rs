@@ -55,6 +55,7 @@ pub struct ManagedLayer {
     updates: Vec<usize>,
 }
 
+#[derive(Copy, Clone)]
 pub enum ObjectRenderMode {
     /// RenderAsMuchAsPossible will
     /// render all of the objects texture that exists
@@ -660,18 +661,39 @@ impl PortionRenderer {
 
         let texture_index = self.objects[object_index].texture_index;
         let current_bounds = self.objects[object_index].current_bounds;
+        let render_mode = self.objects[object_index].render_mode;
+        let texture_width = self.textures[texture_index].width;
         // it should be guaranteed that x and y exist within the objects current bounds
         if x < current_bounds.x || y < current_bounds.y {
             panic!("Called get_pixel_from_object_at with ({}, {}) but objects bounds are {:?}", x, y, current_bounds);
         }
+
         let local_x = x - current_bounds.x;
         let local_y = y - current_bounds.y;
-        let red_index = get_red_index!(local_x, local_y, current_bounds.w, self.indices_per_pixel) as usize;
-        let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+4)) {
-            Some(u8_slice) => u8_slice.into(),
-            None => return None,
-        };
-        Some(pixel)
+        if let ObjectRenderMode::RenderAsMuchAsPossible = render_mode {
+            let red_index = get_red_index!(local_x, local_y, current_bounds.w, self.indices_per_pixel) as usize;
+            let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+4)) {
+                Some(u8_slice) => u8_slice.into(),
+                None => return None,
+            };
+            Some(pixel)
+        } else if let ObjectRenderMode::RenderToFit = render_mode {
+            let texture_pixels_len = self.textures[texture_index].data.len();
+            let indices_per_pixel = self.indices_per_pixel as usize;
+            let texture_height = (texture_pixels_len / indices_per_pixel) / texture_width;
+            let width_stretch_factor = current_bounds.w / texture_width as u32;
+            let height_stretch_factor = current_bounds.h / texture_height as u32;
+            let local_x = local_x / width_stretch_factor;
+            let local_y = local_y / height_stretch_factor;
+            let red_index = get_red_index!(local_x, local_y, texture_width as u32, self.indices_per_pixel) as usize;
+            let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+indices_per_pixel)) {
+                Some(u8_slice) => u8_slice.into(),
+                None => return None,
+            };
+            Some(pixel)
+        } else {
+            None
+        }
     }
 
     pub fn clear_pixels_from_below_object(&mut self, pb_red_index: usize, x: u32, y: u32, skip_below: &BelowRegions) -> bool {
@@ -1238,6 +1260,37 @@ mod tests {
         let pixel = p.get_pixel_from_object_at(textured, 2, 2).unwrap();
         assert_eq!(pixel, PIX3);
         let pixel = p.get_pixel_from_object_at(textured, 3, 2).unwrap();
+        assert_eq!(pixel, PIX4);
+    }
+
+    #[test]
+    fn getting_pixel_from_object_at_position_stretched_works() {
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 4, h: 4 },
+            texture_from(&[PIX1, PIX2, PIX3, PIX4]),
+            2
+        );
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '1', '2', '2',
+            'x', 'x', '1', '1', '2', '2',
+            'x', 'x', '3', '3', '4', '4',
+            'x', 'x', '3', '3', '4', '4',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 6);
+
+        let pixel = p.get_pixel_from_object_at(textured, 3, 2).unwrap();
+        assert_eq!(pixel, PIX1);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 2).unwrap();
+        assert_eq!(pixel, PIX2);
+        let pixel = p.get_pixel_from_object_at(textured, 3, 3).unwrap();
+        assert_eq!(pixel, PIX3);
+        let pixel = p.get_pixel_from_object_at(textured, 4, 3).unwrap();
         assert_eq!(pixel, PIX4);
     }
 
