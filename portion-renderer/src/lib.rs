@@ -35,7 +35,7 @@ pub struct PortionRenderer {
     height: u32,
     indices_per_pixel: u32, // probably only 3 or 4
 
-    textures: Vec<Vec<u8>>,
+    textures: Vec<Texture>,
     layers: Vec<ManagedLayer>,
     objects: Vec<Object>,
 
@@ -66,6 +66,11 @@ pub enum ObjectRenderMode {
     /// RenderToFit will always stretch the texture
     /// to fit it into the bounds
     RenderToFit,
+}
+
+pub struct Texture {
+    data: Vec<u8>,
+    width: usize,
 }
 
 pub struct Object {
@@ -106,7 +111,7 @@ pub struct BelowRegions {
 
 pub enum ObjectTextureType {
     ObjectTextureColor(RgbaPixel),
-    ObjectTextureVec(Vec<u8>),
+    ObjectTextureVec(Vec<u8>, usize),
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -460,9 +465,12 @@ impl PortionRenderer {
             ObjectTextureType::ObjectTextureColor(c) => {
                 (0, Some(c))
             }
-            ObjectTextureType::ObjectTextureVec(v) => {
+            ObjectTextureType::ObjectTextureVec(v, w) => {
                 let next_index = self.textures.len();
-                self.textures.push(v);
+                self.textures.push(Texture {
+                    data: v,
+                    width: w,
+                });
                 (next_index, None)
             }
         };
@@ -487,8 +495,12 @@ impl PortionRenderer {
         self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureColor(color))
     }
 
-    pub fn create_object_from_texture(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>) -> usize {
-        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureVec(texture))
+    pub fn create_object_from_texture(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>, texture_width: usize) -> usize {
+        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureVec(texture, texture_width))
+    }
+
+    pub fn create_object_from_texture_exact(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>) -> usize {
+        self.create_object_from_texture(layer_index, bounds, texture, bounds.w as usize)
     }
 
     pub fn draw_grid_outline(&mut self) {
@@ -642,7 +654,7 @@ impl PortionRenderer {
         let local_x = x - current_bounds.x;
         let local_y = y - current_bounds.y;
         let red_index = get_red_index!(local_x, local_y, current_bounds.w, self.indices_per_pixel) as usize;
-        let pixel: RgbaPixel = match self.textures[texture_index].get(red_index..(red_index+4)) {
+        let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+4)) {
             Some(u8_slice) => u8_slice.into(),
             None => return None,
         };
@@ -719,6 +731,7 @@ impl PortionRenderer {
     pub fn draw_object(&mut self, object_index: usize, skip_above: AboveRegions, skip_below: BelowRegions) {
         // println!("\n----------------");
         let previous_bounds = self.objects[object_index].previous_bounds;
+        let indices_per_pixel = self.indices_per_pixel as usize;
         if let Some(prev) = previous_bounds {
             // println!("Undoing region: {:#?}", prev);
             // println!("Skip below is: {:#?}", skip_below);
@@ -767,7 +780,7 @@ impl PortionRenderer {
         let now_w = now.w;
         let now_h = now.h;
         // println!("Except: {:#?}", skip_regions);
-        let item_pixels = match object.texture_color {
+        let (item_pixels, item_width) = match object.texture_color {
             Some(rgba_pixel) => {
                 for i in now_y..(now_y + now_h) {
                     for j in now_x..(now_x + now_w) {
@@ -790,7 +803,7 @@ impl PortionRenderer {
                 return;
             }
             None => {
-                &self.textures[object.texture_index]
+                (&self.textures[object.texture_index].data, self.textures[object.texture_index].width)
             }
         };
 
@@ -814,14 +827,45 @@ impl PortionRenderer {
                     self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
                     self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
                     self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
-                    item_pixel_index += 4;
+                    item_pixel_index += indices_per_pixel;
                     if item_pixel_index >= item_pixels_max {
                         break 'outer;
                     }
                 }
             }
         } else if let ObjectRenderMode::RenderToFit = object.render_mode {
+            let item_pixels_len = item_pixels.len();
+            let item_height = (item_pixels_len / indices_per_pixel) / item_width;
+            let width_stretch_factor = now_w / item_width as u32;
+            let height_stretch_factor = now_h / item_height as u32;
+            let mut pixel_y = 0;
+            for i in now_y..(now_y + now_h) {
+                let i_diff = i - now_y;
+                if i_diff != 0 && i_diff % height_stretch_factor == 0 {
+                    pixel_y += 1;
+                }
 
+                let mut pixel_x = 0;
+                for j in now_x..(now_x + now_w) {
+                    let j_diff = j - now_x;
+                    if j_diff != 0 && j_diff % width_stretch_factor == 0 {
+                        pixel_x += 1;
+                    }
+
+                    if should_skip_point(&skip_above.above_my_current, j, i) {
+                        // println!("Skipping: ({}, {})", j, i);
+                        continue;
+                    }
+
+                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
+                    let pixel_red_index = get_red_index!(pixel_x, pixel_y, item_width, indices_per_pixel) as usize;
+
+                    self.pixel_buffer[red_index] = item_pixels[pixel_red_index];
+                    self.pixel_buffer[red_index + 1] = item_pixels[pixel_red_index + 1];
+                    self.pixel_buffer[red_index + 2] = item_pixels[pixel_red_index + 2];
+                    self.pixel_buffer[red_index + 3] = item_pixels[pixel_red_index + 3];
+                }
+            }
         }
 
         object.previous_bounds = Some(object.current_bounds);
@@ -1126,7 +1170,7 @@ mod tests {
         let mut p = PortionRenderer::new(
             10, 10, 10, 10
         );
-        let textured = p.create_object_from_texture(
+        let textured = p.create_object_from_texture_exact(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             texture_from(&[PIX1, PIX2, PIX3, PIX4]),
         );
@@ -1151,7 +1195,7 @@ mod tests {
         let mut p = PortionRenderer::new(
             10, 10, 10, 10
         );
-        let textured = p.create_object_from_texture(
+        let textured = p.create_object_from_texture_exact(
             0, Rect { x: 2, y: 1, w: 2, h: 2 },
             texture_from(&[PIX1, PIX2, PIX3, PIX4]),
         );
@@ -1518,7 +1562,7 @@ mod tests {
         );
         // we purposefully dont give a 4th pixel
         // to test if the rendering works
-        let textured = p.create_object_from_texture(
+        let textured = p.create_object_from_texture_exact(
             0, Rect { x: 2, y: 1, w: 2, h: 2 },
             texture_from(&[PIX1, PIX2, PIX3]),
         );
@@ -1549,6 +1593,7 @@ mod tests {
                 PIX4, PIXEL_BLUE, PIXEL_BLUE,
                 PIXEL_BLUE, PIXEL_BLUE, PIXEL_BLUE,
             ]),
+            3,
         );
         // because its render as much as possible,
         // the pixels after the bounds should not exist
@@ -1561,5 +1606,29 @@ mod tests {
             'x', 'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
+    }
+
+    #[test]
+    fn render_mode_fit_works() {
+        let mut p = PortionRenderer::new(
+            10, 10, 10, 10
+        );
+
+        // first test if it can be stretched big
+        let textured = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 4, h: 4 },
+            texture_from(&[PIX1, PIX2, PIX3, PIX4]),
+            2
+        );
+        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '1', '2', '2',
+            'x', 'x', '1', '1', '2', '2',
+            'x', 'x', '3', '3', '4', '4',
+            'x', 'x', '3', '3', '4', '4',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 6);
     }
 }
