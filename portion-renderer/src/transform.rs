@@ -87,7 +87,8 @@ fn blend_bilinear(
     println!("{:?}", top);
     println!("{:?}", bottom);
 
-    let mut out = [0, 0, 0, 0];
+    // we want to be alpha: v
+    let mut out = [0, 0, 0, 255];
     for i in 0..3 {
         let other = (1f32 - bottom_weight) * top[i] as f32 + bottom_weight * bottom[i] as f32;
         out[i] = other as u8;
@@ -198,6 +199,7 @@ pub fn transform_texture(
             slice[0] = pixel.r;
             slice[1] = pixel.g;
             slice[2] = pixel.b;
+            slice[3] = pixel.a;
         }
     });
 }
@@ -223,7 +225,7 @@ mod transform_tests {
         );
 
         let expected_blended = RgbaPixel {
-            r: 24, b: 24, g: 24, a: 0,
+            r: 24, b: 24, g: 24, a: 255,
         };
         assert_eq!(blended_pixel, expected_blended);
     }
@@ -246,7 +248,7 @@ mod transform_tests {
             PIXEL_BLACK
         );
         let expected_blended = RgbaPixel {
-            r: 24, b: 24, g: 24, a: 0,
+            r: 24, b: 24, g: 24, a: 255,
         };
         assert_eq!(blended, expected_blended);
     }

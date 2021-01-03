@@ -14,10 +14,11 @@ macro_rules! get_red_index {
     };
 }
 
-pub const PIXEL_BLACK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 0 };
-pub const PIXEL_RED: RgbaPixel = RgbaPixel { r: 255, g: 0, b: 0, a: 0 };
-pub const PIXEL_GREEN: RgbaPixel = RgbaPixel { r: 0, g: 255, b: 0, a: 0 };
-pub const PIXEL_BLUE: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 255, a: 0 };
+pub const PIXEL_BLANK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 0 };
+pub const PIXEL_BLACK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 255 };
+pub const PIXEL_RED: RgbaPixel = RgbaPixel { r: 255, g: 0, b: 0, a: 255 };
+pub const PIXEL_GREEN: RgbaPixel = RgbaPixel { r: 0, g: 255, b: 0, a: 255 };
+pub const PIXEL_BLUE: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 255, a: 255 };
 
 #[derive(Default, Clone)]
 pub struct GridPortion {
@@ -832,6 +833,12 @@ impl PortionRenderer {
         // println!("Except: {:#?}", skip_regions);
         let (item_pixels, item_width) = match object.texture_color {
             Some(rgba_pixel) => {
+                // can skip rendering if the alpha is 0, no point in iterating
+                if rgba_pixel.a == 0 {
+                    object.previous_bounds = Some(object.current_bounds);
+                    return;
+                }
+
                 for i in now_y..(now_y + now_h) {
                     for j in now_x..(now_x + now_w) {
                         if should_skip_point(&skip_above.above_my_current, j, i) {
@@ -865,6 +872,10 @@ impl PortionRenderer {
             let mut item_pixel_index = 0;
             'outer: for i in now_y..(now_y + now_h) {
                 for j in now_x..(now_x + now_w) {
+                    // if the alpha value is 0, skip this pixel
+                    if item_pixels[item_pixel_index + 3] == 0 {
+                        continue;
+                    }
                     if should_skip_point(&skip_above.above_my_current, j, i) {
                         // println!("Skipping: ({}, {})", j, i);
                         continue;
@@ -912,6 +923,12 @@ impl PortionRenderer {
                         pixel_x = item_width - 1;
                     }
 
+                    let pixel_red_index = get_red_index!(pixel_x, pixel_y, item_width, indices_per_pixel) as usize;
+                    // if alpha is 0, no point in checking above points, just skip
+                    if item_pixels[pixel_red_index + 3] == 0 {
+                        continue;
+                    }
+
                     if should_skip_point(&skip_above.above_my_current, j, i) {
                         // println!("Skipping: ({}, {})", j, i);
                         continue;
@@ -919,7 +936,6 @@ impl PortionRenderer {
 
                     self.portioner.take_pixel(j, i);
                     let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
-                    let pixel_red_index = get_red_index!(pixel_x, pixel_y, item_width, indices_per_pixel) as usize;
 
                     self.pixel_buffer[red_index] = item_pixels[pixel_red_index];
                     self.pixel_buffer[red_index + 1] = item_pixels[pixel_red_index + 1];
@@ -1182,7 +1198,7 @@ mod tests {
                 'g' => PIXEL_GREEN,
                 'r' => PIXEL_RED,
                 'b' => PIXEL_BLUE,
-                'x' => PIXEL_BLACK,
+                'x' => PIXEL_BLANK,
                 '1' => PIX1,
                 '2' => PIX2,
                 '3' => PIX3,
@@ -1190,7 +1206,7 @@ mod tests {
                 c => panic!("Found undefined char in map: {}", c),
             };
             let c = match pixel_slice {
-                PIXEL_BLACK => 'x',
+                PIXEL_BLANK => 'x',
                 PIXEL_GREEN => 'g',
                 PIXEL_RED => 'r',
                 PIXEL_BLUE => 'b',
