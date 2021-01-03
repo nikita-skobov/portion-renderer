@@ -225,7 +225,7 @@ impl Projection {
 
     // Helper functions used as optimization in warp.
     #[inline(always)]
-    fn map_projective(&self, x: f32, y: f32) -> (f32, f32) {
+    pub fn map_projective(&self, x: f32, y: f32) -> (f32, f32) {
         let t = &self.transform;
         let d = t[6] * x + t[7] * y + t[8];
         (
@@ -235,13 +235,13 @@ impl Projection {
     }
 
     #[inline(always)]
-    fn map_affine(&self, x: f32, y: f32) -> (f32, f32) {
+    pub fn map_affine(&self, x: f32, y: f32) -> (f32, f32) {
         let t = &self.transform;
         ((t[0] * x + t[1] * y + t[2]), (t[3] * x + t[4] * y + t[5]))
     }
 
     #[inline(always)]
-    fn map_translation(&self, x: f32, y: f32) -> (f32, f32) {
+    pub fn map_translation(&self, x: f32, y: f32) -> (f32, f32) {
         let t = &self.transform;
         let tx = t[2];
         let ty = t[5];
