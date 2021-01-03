@@ -880,6 +880,7 @@ impl PortionRenderer {
                         continue;
                     }
 
+                    self.portioner.take_pixel(j, i);
                     let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
                     let pixel_red_index = get_red_index!(pixel_x, pixel_y, item_width, indices_per_pixel) as usize;
 
