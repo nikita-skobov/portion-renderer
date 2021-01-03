@@ -206,6 +206,7 @@ pub fn transform_texture(
 #[cfg(test)]
 mod transform_tests {
     use super::*;
+    use super::super::PIXEL_BLACK;
 
     #[test]
     fn blend_bilinear_works() {
