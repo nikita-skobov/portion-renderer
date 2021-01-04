@@ -719,6 +719,9 @@ impl PortionRenderer {
                     below.region_belongs_to, x, y
                 );
                 if let Some(pixel) = pixel {
+                    if pixel.a == 0 {
+                        return false;
+                    }
                     // println!("Undoing ({}, {}) via clearBelow: {:?}", x, y, pixel);
                     self.pixel_buffer[pb_red_index] = pixel.r;
                     self.pixel_buffer[pb_red_index + 1] = pixel.g;
