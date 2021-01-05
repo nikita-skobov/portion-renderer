@@ -577,6 +577,11 @@ impl Matrix {
             Matrix::RotateAndScaleAndTranslate(a0, a1, b0, b1, by_x, by_y) => (a0 * x + a1 * y + by_x, b0 * x + b1 * y + by_y),
         }
     }
+
+    pub fn invert(&self) -> Option<Matrix> {
+        let m: [f32; 9] = self.into();
+        try_inverse(&m).map(|f| f.into())
+    }
 }
 
 impl Mul<&(f32, f32)> for &Matrix {
@@ -655,28 +660,8 @@ impl From<Matrix> for [f32; 9] {
     }
 }
 
-pub fn print_matrix(m: &Matrix) {
-    let matrix: [f32; 9] = m.into();
-    print_matrix3(matrix);
-}
-pub fn print_matrix3(matrix: [f32; 9]) {
-    for row in matrix.chunks(3) {
-        for j in row {
-            print!("{}, ", j);
-        }
-        println!("");
-    }
-}
-
-impl Mul<Matrix> for Matrix {
-    type Output = Matrix;
-
-    fn mul(self, rhs: Matrix) -> Self::Output {
-        let matrix_self: [f32; 9] = self.into();
-        let matrix_rhs: [f32; 9] = rhs.into();
-
-        let multiplied = mul3x3(matrix_self, matrix_rhs);
-
+impl From<[f32; 9]> for Matrix {
+    fn from(multiplied: [f32; 9]) -> Self {
         let has_scale = match (multiplied[0], multiplied[4]) {
             (x, y) => if x == 1.0 && y == 1.0 {
                 None
@@ -722,6 +707,31 @@ impl Mul<Matrix> for Matrix {
     }
 }
 
+pub fn print_matrix(m: &Matrix) {
+    let matrix: [f32; 9] = m.into();
+    print_matrix3(matrix);
+}
+pub fn print_matrix3(matrix: [f32; 9]) {
+    for row in matrix.chunks(3) {
+        for j in row {
+            print!("{}, ", j);
+        }
+        println!("");
+    }
+}
+
+impl Mul<Matrix> for Matrix {
+    type Output = Matrix;
+
+    fn mul(self, rhs: Matrix) -> Self::Output {
+        let matrix_self: [f32; 9] = self.into();
+        let matrix_rhs: [f32; 9] = rhs.into();
+
+        let multiplied = mul3x3(matrix_self, matrix_rhs);
+        multiplied.into()
+    }
+}
+
 #[cfg(test)]
 mod projection_tests {
     use super::*;
@@ -732,6 +742,39 @@ mod projection_tests {
         let left = f32::trunc(float_left * threshhold) / threshhold;
         let right = f32::trunc(float_right * threshhold) / threshhold;
         assert_eq!(left, right);
+    }
+
+    #[test]
+    fn inverse_work() {
+        let (x, y) = (1.0, 0.0);
+
+        // a normal 30d rotation should be 0.8_, 0.5:
+        let m = Matrix::rotate_degrees(30f32);
+        let (out_x, out_y) = m.mul_point(x, y);
+        assert_f_eq(out_x, 0.866);
+        assert_f_eq(out_y, 0.5);
+
+        // and if we invert it, taking 0.8_, 0.5
+        // should go back to original (x,y): (1.0, 0.0)
+        let m = m.invert().unwrap();
+        let (out_x, out_y) = m.mul_point(0.8661, 0.5);
+        assert_f_eq(out_x, x);
+        assert_f_eq(out_y, y);
+
+        // should translate first, then scale, then rotate
+        // should be (1, 0) -> (2, 1) -> (4, 2) -> (-2, 4)
+        let m = Matrix::rotate_degrees(90f32)
+            * Matrix::Scale(2.0, 2.0)
+            * Matrix::TranslateXY(1.0, 1.0);
+        let (out_x, out_y) = m.mul_point(x, y);
+        assert_f_eq(out_x, -2.0);
+        assert_f_eq(out_y, 4.0);
+
+        // reverse should go back to x, y:
+        let m = m.invert().unwrap();
+        let (out_x, out_y) = m.mul_point(-2.0, 4.0);
+        assert_f_eq(out_x, x);
+        assert_f_eq(out_y, y);
     }
 
     #[test]
