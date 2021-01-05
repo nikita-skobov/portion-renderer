@@ -6,3 +6,11 @@ edition = "2018"
 
 [dependencies]
 grid = { path = "../grid" }
+
+[dev-dependencies]
+criterion = "0.3"
+rand = "*"
+
+[[bench]]
+name = "bench1"
+harness = false
