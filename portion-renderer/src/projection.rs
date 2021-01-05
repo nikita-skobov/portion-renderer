@@ -303,6 +303,202 @@ impl<'a, 'b> Mul<&'b (f32, f32)> for &'a Projection {
 }
 
 
+/// A trait that easily allows to compute
+/// a 2d point using any of the below minimal matrix structs
+/// this is useful because it is much faster to compute
+/// a point from a simple structure than from the Matrix enum
+/// the matrix enum is very convenient for defining and composing matrix,
+/// but then if you want performant computation, it is recommended to convert
+/// the matrix to a ComputePoint, which (if the same ComputePoint is used
+/// for many points) is much faster than the Matrix enum.
+/// to conveniently convert a Matrix enum to a ComputPoint trait,
+/// see the match_matrix! macro. This macro takes a matrix, and
+/// converts to the appropriate Matrix struct, and then calls
+/// a callback with arbitrary additional parameters
+pub trait ComputePoint {
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32);
+}
+
+pub struct UnitMatrix;
+
+pub struct TranslateMatrix {
+                    tx: f32,
+                    ty: f32,
+}
+
+pub struct ScaleMatrix {
+    sx: f32,
+            sy: f32,
+}
+
+pub struct RotateMatrix {
+    cos: f32,
+    sin: f32,
+}
+
+pub struct ScaleTranslateMatrix {
+    sx: f32,            tx: f32,
+            sy: f32,    ty: f32,
+}
+
+pub struct RotateTranslateMatrix {
+    cos: f32,           tx: f32,
+    sin: f32,           ty: f32,
+}
+
+pub struct RotateScaleTranslateMatrix {
+    a0: f32, a1: f32, tx: f32,
+    b0: f32, b1: f32, ty: f32,
+}
+
+impl ComputePoint for RotateScaleTranslateMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (self.a0 * x + self.a1 * y + self.tx, self.b0 * x + self.b1 * y + self.ty)
+    }
+}
+
+impl ComputePoint for RotateTranslateMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (self.cos * x - self.sin * y + self.tx, self.sin * x + self.cos * y + self.ty)
+    }
+}
+
+impl ComputePoint for ScaleTranslateMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (self.sx * x + self.tx, self.sy * y + self.ty)
+    }
+}
+
+impl ComputePoint for RotateMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (self.cos * x - self.sin * y, self.sin * x + self.cos * y)
+    }
+}
+
+impl ComputePoint for ScaleMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (self.sx * x, self.sy * y)
+    }
+}
+
+impl ComputePoint for TranslateMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (x + self.tx, y + self.ty)
+    }
+}
+
+impl ComputePoint for UnitMatrix {
+    #[inline(always)]
+    fn compute_pt(self: &Self, x: f32, y: f32) -> (f32, f32) {
+        (x, y)
+    }
+}
+
+impl From<&Matrix> for UnitMatrix {
+    fn from(_: &Matrix) -> Self {
+        UnitMatrix
+    }
+}
+
+impl From<&Matrix> for RotateScaleTranslateMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::RotateAndScaleAndTranslate(a0, a1, b0, b1, tx, ty) => {
+                RotateScaleTranslateMatrix { a0: *a0, a1: *a1, b0: *b0, b1: *b1, tx: *tx, ty: *ty }
+            },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+impl From<&Matrix> for TranslateMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::TranslateXY(tx, ty) => TranslateMatrix { tx: *tx, ty: *ty },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+impl From<&Matrix> for ScaleMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::Scale(sx, sy) => ScaleMatrix { sx: *sx, sy: *sy },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+impl From<&Matrix> for RotateMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::Rotate(cos, sin) => RotateMatrix { cos: *cos, sin: *sin },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+impl From<&Matrix> for ScaleTranslateMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::ScaleAndTranslate(sx, sy, tx, ty) => ScaleTranslateMatrix { sx: *sx, sy: *sy, tx: *tx, ty: *ty },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+impl From<&Matrix> for RotateTranslateMatrix {
+    fn from(orig: &Matrix) -> Self {
+        match orig {
+            Matrix::RotateAndTranslate(cos, sin, tx, ty) => RotateTranslateMatrix { cos: *cos, sin: *sin, tx: *tx, ty: *ty },
+            _ => panic!("Tried converting to the wrong matrix"),
+        }
+    }
+}
+
+#[macro_export]
+macro_rules! match_matrix {
+    ($x:ident, $y:tt, $($t:tt)*) => {
+        match $x {
+            Matrix::Rotate(_, _) => {
+                let m = ::portion_renderer::projection::RotateMatrix::from($x);
+                $y(m, $($t)*)
+            },
+            Matrix::RotateAndScaleAndTranslate(_, _, _, _, _, _) => {
+                let m = ::portion_renderer::projection::RotateScaleTranslateMatrix::from($x);
+                $y(m, $($t)*)
+            },
+            Matrix::Unit => {
+                let m = ::portion_renderer::projection::UnitMatrix::from($x);
+                $y(m, $($t)*)
+            },
+            Matrix::Scale(_, _) => {
+                let m = ::portion_renderer::projection::ScaleMatrix::from($x);
+                $y(m, $($t)*)
+            },
+            Matrix::TranslateXY(_, _) => {
+                let m = ::portion_renderer::projection::TranslateMatrix::from($x);
+                $y(m, $($t)*)
+            }
+            Matrix::ScaleAndTranslate(_, _, _, _) => {
+                let m = ::portion_renderer::projection::ScaleTranslateMatrix::from($x);
+                $y(m, $($t)*)
+            }
+            Matrix::RotateAndTranslate(_, _, _, _) => {
+                let m = ::portion_renderer::projection::RotateTranslateMatrix::from($x);
+                $y(m, $($t)*)
+            },
+        }
+    }
+}
+
+
 /// given theta in radians, convert to a sin, cos
 /// rotation matrix
 pub fn get_rotation_matrix_radians(theta: f32) -> Matrix {
