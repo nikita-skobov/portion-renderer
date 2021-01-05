@@ -332,13 +332,13 @@ pub enum Matrix {
     RotateAndScaleAndTranslate(f32, f32, f32, f32, f32, f32),
 }
 
-impl Mul<(f32, f32)> for Matrix {
+impl Mul<&(f32, f32)> for &Matrix {
     type Output = (f32, f32);
 
     #[inline(always)]
-    fn mul(self, rhs: (f32, f32)) -> Self::Output {
+    fn mul(self, rhs: &(f32, f32)) -> Self::Output {
         match self {
-            Matrix::Unit => rhs,
+            Matrix::Unit => *rhs,
             Matrix::Scale(sx, sy) => (sx * rhs.0, sy * rhs.1),
             Matrix::Rotate(cos, sin) => (cos * rhs.0 - sin * rhs.1, sin * rhs.0 + cos * rhs.1),
             Matrix::TranslateXY(by_x, by_y) => (rhs.0 + by_x, rhs.1 + by_y),
@@ -346,6 +346,24 @@ impl Mul<(f32, f32)> for Matrix {
             Matrix::RotateAndTranslate(cos, sin, by_x, by_y) => (cos * rhs.0 - sin * rhs.1 + by_x, sin * rhs.0 + cos * rhs.1 + by_y),
             Matrix::RotateAndScaleAndTranslate(a0, a1, b0, b1, by_x, by_y) => (a0 * rhs.0 + a1 * rhs.1 + by_x, b0 * rhs.0 + b1 * rhs.1 + by_y),
         }
+    }
+}
+
+impl Mul<(f32, f32)> for Matrix {
+    type Output = (f32, f32);
+
+    #[inline(always)]
+    fn mul(self, rhs: (f32, f32)) -> Self::Output {
+        &self * &rhs
+    }
+}
+
+impl Mul<(f32, f32)> for &Matrix {
+    type Output = (f32, f32);
+
+    #[inline(always)]
+    fn mul(self, rhs: (f32, f32)) -> Self::Output {
+        self * &rhs
     }
 }
 
