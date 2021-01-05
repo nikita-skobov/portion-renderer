@@ -531,21 +531,6 @@ macro_rules! match_matrix {
 }
 
 
-/// given theta in radians, convert to a sin, cos
-/// rotation matrix
-pub fn get_rotation_matrix_radians(theta: f32) -> Matrix {
-    let (sin, cos) = theta.sin_cos();
-    Matrix::Rotate(cos, sin)
-}
-
-/// given an angle in degrees, convert to a sin, cos
-/// rotation matrix, this is just a convenience
-/// function for calling get_rotation_matrix_radians
-pub fn get_rotation_matrix(angle: f32) -> Matrix {
-    let radians = angle.to_radians();
-    get_rotation_matrix_radians(radians)
-}
-
 pub enum Matrix {
     Unit,
     Scale(f32, f32),
@@ -558,6 +543,22 @@ pub enum Matrix {
     RotateAndTranslate(f32, f32, f32, f32),
     /// 0, 1, 3, 4, translatex, translatey
     RotateAndScaleAndTranslate(f32, f32, f32, f32, f32, f32),
+}
+
+impl Matrix {
+    /// given an angle in degrees, convert to a sin, cos
+    /// rotation matrix, this is just a convenience
+    /// function for calling Matrix::rotate_radians
+    pub fn rotate_degrees(angle: f32) -> Matrix {
+        Matrix::rotate_radians(angle.to_radians())
+    }
+
+    /// given theta in radians, convert to a sin, cos
+    /// rotation matrix
+    pub fn rotate_radians(radians: f32) -> Matrix {
+        let (sin, cos) = radians.sin_cos();
+        Matrix::Rotate(cos, sin)
+    }
 }
 
 impl Mul<&(f32, f32)> for &Matrix {
@@ -820,7 +821,7 @@ mod projection_tests {
         assert_f_eq(out_x, 0.0);
         assert_f_eq(out_y, 2.0);
 
-        let rotation_matrix = get_rotation_matrix(90f32);
+        let rotation_matrix = Matrix::rotate_degrees(90f32);
         let scale_matrix = Matrix::Scale(2.0, 1.0);
         let m = rotation_matrix * scale_matrix;
         let (out_x, out_y) = m * (x, y);
@@ -839,7 +840,7 @@ mod projection_tests {
         assert_f_eq(out_x, 2.0);
         assert_f_eq(out_y, 1.0);
 
-        let r = get_rotation_matrix(90f32);
+        let r = Matrix::rotate_degrees(90f32);
         let t1 = Matrix::TranslateXY(1.0, 1.0);
         let t2 = Matrix::TranslateXY(-1.0, -1.0);
         let m = t1 * r * t2;
