@@ -559,6 +559,24 @@ impl Matrix {
         let (sin, cos) = radians.sin_cos();
         Matrix::Rotate(cos, sin)
     }
+
+    #[inline(always)]
+    pub fn mul_tuple(&self, xy: (f32, f32)) -> (f32, f32) {
+        self.mul_point(xy.0, xy.1)
+    }
+
+    #[inline(always)]
+    pub fn mul_point(&self, x: f32, y: f32) -> (f32, f32) {
+        match self {
+            Matrix::Unit => (x, y),
+            Matrix::Scale(sx, sy) => (sx * x, sy * y),
+            Matrix::Rotate(cos, sin) => (cos * x - sin * y, sin * x + cos * y),
+            Matrix::TranslateXY(by_x, by_y) => (x + by_x, y + by_y),
+            Matrix::ScaleAndTranslate(sx, sy, by_x, by_y) => (sx * x + by_x, sy * y + by_y),
+            Matrix::RotateAndTranslate(cos, sin, by_x, by_y) => (cos * x - sin * y + by_x, sin * x + cos * y + by_y),
+            Matrix::RotateAndScaleAndTranslate(a0, a1, b0, b1, by_x, by_y) => (a0 * x + a1 * y + by_x, b0 * x + b1 * y + by_y),
+        }
+    }
 }
 
 impl Mul<&(f32, f32)> for &Matrix {
@@ -753,27 +771,28 @@ mod projection_tests {
     #[test]
     fn simple_rotate_works() {
         let (x, y) = (1.0, 0.0);
-        let p = Projection::rotate(90f32.to_radians());
-        let (out_x, out_y) = p.map_projective(x, y);
+
+        let m = Matrix::rotate_degrees(90f32);
+        let (out_x, out_y) = m.mul_point(x, y);
         assert_f_eq(out_x, 0.0);
         assert_f_eq(out_y, 1.0);
 
-        let p = Projection::rotate((-90f32).to_radians());
-        let (out_x, out_y) = p.map_projective(x, y);
+        let m = Matrix::rotate_degrees(-90f32);
+        let (out_x, out_y) = m.mul_point(x, y);
         assert_f_eq(out_x, 0.0);
         assert_f_eq(out_y, -1.0);
 
-        let p = Projection::rotate(45f32.to_radians());
-        let (out_x, out_y) = p.map_projective(x, y);
+        let m = Matrix::rotate_degrees(45f32);
+        let (out_x, out_y) = m.mul_point(x, y);
         assert_f_eq(out_x, 0.70712);
         assert_f_eq(out_y, 0.70712);
 
         // going over 360 loops back
         // so p1 should have same result as p2
-        let p1 = Projection::rotate(361f32.to_radians());
-        let p2 = Projection::rotate(1f32.to_radians());
-        let (p1_x, p1_y) = p1.map_projective(x, y);
-        let (p2_x, p2_y) = p2.map_projective(x, y);
+        let m1 = Matrix::rotate_degrees(361f32);
+        let m2 = Matrix::rotate_degrees(1f32);
+        let (p1_x, p1_y) = m1.mul_point(x, y);
+        let (p2_x, p2_y) = m2.mul_point(x, y);
         assert_f_eq(p1_x, p2_x);
         assert_f_eq(p1_y, p2_y);
     }
@@ -781,10 +800,6 @@ mod projection_tests {
     #[test]
     fn can_scale() {
         let (x, y) = (1.0, 0.0);
-        let p = Projection::scale(2.0, 1.0);
-        let (out_x, out_y) = p.map_projective(x, y);
-        assert_f_eq(out_x, 2.0);
-        assert_f_eq(out_y, 0.0);
 
         let m = Matrix::Scale(2.0, 1.0);
         let (out_x, out_y) = m * (x, y);
@@ -795,10 +810,6 @@ mod projection_tests {
     #[test]
     fn can_translate() {
         let (x, y) = (1.0, 0.0);
-        let p = Projection::translate(1.0, 1.0);
-        let (out_x, out_y) = p.map_projective(x, y);
-        assert_f_eq(out_x, 2.0);
-        assert_f_eq(out_y, 1.0);
 
         let m1 = Matrix::TranslateXY(1.0, 0.0);
         let m2 = Matrix::TranslateXY(0.0, 1.0);
@@ -816,11 +827,6 @@ mod projection_tests {
     #[test]
     fn can_rotate_and_scale() {
         let (x, y) = (1.0, 0.0);
-        let p = Projection::rotate(90f32.to_radians()) * Projection::scale(2.0, 1.0);
-        let (out_x, out_y) = p.map_projective(x, y);
-        assert_f_eq(out_x, 0.0);
-        assert_f_eq(out_y, 2.0);
-
         let rotation_matrix = Matrix::rotate_degrees(90f32);
         let scale_matrix = Matrix::Scale(2.0, 1.0);
         let m = rotation_matrix * scale_matrix;
@@ -835,11 +841,6 @@ mod projection_tests {
         // normally a rotation 90d would move (1, 0) to (0, 1)
         // but here we rotate about an arbitrary point: (1, 1)
         // such that when our (1, 0) gets rotate 90d, it should become (2, 1)
-        let p = Projection::translate(1.0, 1.0) * Projection::rotate(90f32.to_radians()) * Projection::translate(-1.0, -1.0);
-        let (out_x, out_y) = p.map_projective(x, y);
-        assert_f_eq(out_x, 2.0);
-        assert_f_eq(out_y, 1.0);
-
         let r = Matrix::rotate_degrees(90f32);
         let t1 = Matrix::TranslateXY(1.0, 1.0);
         let t2 = Matrix::TranslateXY(-1.0, -1.0);
