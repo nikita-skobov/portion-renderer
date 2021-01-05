@@ -2,7 +2,7 @@ use std::f64::consts::PI;
 
 use super::RgbaPixel;
 use super::get_red_index;
-use super::Projection;
+use super::Matrix;
 
 macro_rules! rotate_point {
     ($x:expr, $y:expr, $sin:expr, $cos:expr) => {
@@ -163,9 +163,9 @@ pub fn rotate_texture_about_center(
     let indices_per_pixel = 4;
     let mut dest = vec![0; indices_per_pixel * num_pixels];
 
-    let rotate = Projection::rotate(angle.to_radians());
+    let rotate = Matrix::rotate_degrees(angle);
     let (cx, cy) = (texture_width as f32 / 2.0, texture_height as f32 / 2.0);
-    let rotate_about_center = Projection::translate(cx, cy) * rotate * Projection::translate(-cx, -cy);
+    let rotate_about_center = Matrix::TranslateXY(cx, cy) * rotate * Matrix::TranslateXY(-cx, -cy);
 
     transform_texture(
         texture, texture_width, texture_height,
@@ -181,12 +181,12 @@ pub fn transform_texture(
     texture: &[u8],
     texture_width: u32,
     texture_height: u32,
-    projection: &Projection,
+    projection: &Matrix,
     default_pixel: RgbaPixel,
     out_texture: &mut Vec<u8>,
     out_width: u32,
 ) {
-    let projection = projection.invert();
+    let projection = projection.invert().unwrap();
 
     let indices_per_pixel = 4;
     let pitch = indices_per_pixel * out_width as usize;
@@ -194,7 +194,7 @@ pub fn transform_texture(
 
     chunks.enumerate().for_each(|(y, row)| {
         for (x, slice) in row.chunks_mut(indices_per_pixel).enumerate() {
-            let (px, py) = projection.map_affine(x as f32, y as f32);
+            let (px, py) = projection.mul_point(x as f32, y as f32);
             let pixel = interpolate_bilinear(texture, texture_width, texture_height, px, py, default_pixel);
             slice[0] = pixel.r;
             slice[1] = pixel.g;

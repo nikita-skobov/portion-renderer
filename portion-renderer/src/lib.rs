@@ -4,7 +4,7 @@ use std::ops::Index;
 pub mod portioner;
 pub mod projection;
 pub mod transform;
-pub use projection::Projection;
+pub use projection::Matrix;
 pub use transform::*;
 pub use portioner::*;
 
