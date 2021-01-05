@@ -495,6 +495,38 @@ macro_rules! match_matrix {
                 $y(m, $($t)*)
             },
         }
+    };
+    ($x:ident, $y:tt) => {
+        match $x {
+            Matrix::Rotate(_, _) => {
+                let m = ::portion_renderer::projection::RotateMatrix::from($x);
+                $y(m)
+            },
+            Matrix::RotateAndScaleAndTranslate(_, _, _, _, _, _) => {
+                let m = ::portion_renderer::projection::RotateScaleTranslateMatrix::from($x);
+                $y(m)
+            },
+            Matrix::Unit => {
+                let m = ::portion_renderer::projection::UnitMatrix::from($x);
+                $y(m)
+            },
+            Matrix::Scale(_, _) => {
+                let m = ::portion_renderer::projection::ScaleMatrix::from($x);
+                $y(m)
+            },
+            Matrix::TranslateXY(_, _) => {
+                let m = ::portion_renderer::projection::TranslateMatrix::from($x);
+                $y(m)
+            }
+            Matrix::ScaleAndTranslate(_, _, _, _) => {
+                let m = ::portion_renderer::projection::ScaleTranslateMatrix::from($x);
+                $y(m)
+            }
+            Matrix::RotateAndTranslate(_, _, _, _) => {
+                let m = ::portion_renderer::projection::RotateTranslateMatrix::from($x);
+                $y(m)
+            },
+        }
     }
 }
 
