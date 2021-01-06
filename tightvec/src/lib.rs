@@ -25,13 +25,16 @@ impl<T> IndexMut<usize> for TightVec<T> {
 }
 
 impl<T> TightVec<T> {
-    pub fn insert(&mut self, value: T) {
+    pub fn insert(&mut self, value: T) -> usize {
         match self.next.pop_front() {
             Some(index) => {
                 self.buf[index] = value;
+                index
             }
             None => {
+                let index = self.buf.len();
                 self.buf.push(value);
+                index
             }
         }
     }
@@ -106,8 +109,9 @@ mod tests {
         assert_eq!(t.used_len(), 2);
         assert_eq!(t.unused_len(), 1);
 
-        t.insert(SimpleData::Data2);
-        assert_eq!(&t[1], &SimpleData::Data2);
+        let ti = t.insert(SimpleData::Data2);
+        assert_eq!(&t[ti], &SimpleData::Data2);
+        assert_eq!(ti, 1);
     }
 
     #[test]
