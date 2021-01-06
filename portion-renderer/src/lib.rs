@@ -4,9 +4,11 @@ use std::ops::Index;
 pub mod portioner;
 pub mod projection;
 pub mod transform;
+pub mod bounds;
 pub use projection::Matrix;
 pub use transform::*;
 pub use portioner::*;
+pub use bounds::*;
 
 #[macro_export]
 macro_rules! get_red_index {
@@ -118,21 +120,6 @@ pub struct RgbaPixel {
     pub a: u8,
 }
 
-#[derive(Copy, Clone, Debug, PartialEq)]
-pub struct Rect {
-    pub x: u32,
-    pub y: u32,
-    pub w: u32,
-    pub h: u32,
-}
-
-pub fn should_skip_point(skip_regions: &Vec<Rect>, x: u32, y: u32) -> bool {
-    for rect in skip_regions {
-        if rect.contains(x, y) { return true };
-    }
-    false
-}
-
 pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
     let mut out_vec = vec![];
 
@@ -155,31 +142,6 @@ impl ManagedLayer {
         self.objects.iter().position(|p| *p == object_index)
     }
 }
-
-impl Rect {
-    // stolen from
-    // https://referencesource.microsoft.com/#System.Drawing/commonui/System/Drawing/Rectangle.cs,438
-    // because im dumb and lazy
-    pub fn intersection(a: Rect, b: Rect) -> Option<Rect> {
-        let x1 = cmp::max(a.x, b.x);
-        let x2 = cmp::min(a.x + a.w, b.x + b.w);
-        let y1 = cmp::max(a.y, b.y);
-        let y2 = cmp::min(a.y + a.h, b.y + b.h);
-
-        if x2 > x1 && y2 > y1 {
-            Some(Rect { x: x1, y: y1, w: x2 - x1, h: y2 - y1 })
-        } else {
-            None
-        }
-    }
-    pub fn contains(&self, x: u32, y: u32) -> bool {
-        self.x <= x &&
-        x < self.x + self.w &&
-        self.y <= y &&
-        y < self.y + self.h
-    }
-}
-
 
 /// Dont use this in a real program
 /// this is just convenient for debugging
