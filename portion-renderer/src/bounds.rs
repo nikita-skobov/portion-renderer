@@ -25,6 +25,10 @@ pub struct Vector {
     pub y: f32,
 }
 
+/// point B must be 'between'
+/// point A and C. ie, you should not be
+/// able to draw a direct line between A and C, but
+/// rather you have to cross B first.
 pub struct TiltedRect {
     pub ax: f32,
     pub ay: f32,
@@ -36,6 +40,7 @@ pub struct TiltedRect {
     pub ab_dot: f32,
     pub bc_vec: Vector,
     pub bc_dot: f32,
+    pub bounding_rect: Rect,
 }
 
 pub trait Contains {
@@ -43,10 +48,12 @@ pub trait Contains {
     fn contains_u32(&self, x: u32, y: u32) -> bool;
 }
 
-pub trait Intersects {
-    type Obj;
+pub trait GetRectangularBounds {
+    fn get_bounds(&self) -> Rect;
+}
 
-    fn intersection(a: Self::Obj, b: Self::Obj) -> Option<Self::Obj>;
+pub trait Intersects {
+    fn intersection<C: GetRectangularBounds>(&self, b: C) -> Option<Rect>;
 }
 
 #[inline(always)]
@@ -69,6 +76,16 @@ pub fn should_skip_point(skip_regions: &Vec<Rect>, x: u32, y: u32) -> bool {
     false
 }
 
+pub fn sorted_values(a: &Point, b: &Point, c: &Point) -> [[f32; 3]; 2] {
+    let mut x = [a.x, b.x, c.x];
+    let mut y = [a.y, b.y, c.y];
+
+    x.sort_by(|p1, p2| p1.partial_cmp(p2).unwrap());
+    y.sort_by(|p1, p2| p1.partial_cmp(p2).unwrap());
+
+    return [ x, y ];
+}
+
 impl TiltedRect {
     pub fn prepare(&mut self) {
         self.ab_vec = vector(self.ax, self.ay, self.bx, self.by);
@@ -78,6 +95,13 @@ impl TiltedRect {
     }
 
     pub fn from_points(a: Point, b: Point, c: Point) -> TiltedRect {
+        let [sorted_x, sorted_y] = sorted_values(&a, &b, &c);
+
+        let x = sorted_x[0].ceil() as u32;
+        let y = sorted_y[0].ceil() as u32;
+        let w = (sorted_x[2] - sorted_x[1] + sorted_x[1] - sorted_x[0]).ceil() as u32;
+        let h = (sorted_y[2] - sorted_y[0] + sorted_y[1] - sorted_y[0]).ceil() as u32;
+
         let mut t = TiltedRect {
             ax: a.x,
             ay: a.y,
@@ -89,19 +113,41 @@ impl TiltedRect {
             bc_vec: Vector { x: 0.0, y: 0.0, },
             ab_dot: 0.0,
             bc_dot: 0.0,
+            bounding_rect: Rect { x, y, w, h },
         };
         t.prepare();
         t
     }
 }
 
-impl Intersects for Rect {
-    type Obj = Rect;
+impl Intersects for TiltedRect {
+    /// too lazy right now to figure out a good intersection
+    /// algorithm for tilted rectangles... just going to
+    /// use the rectangular outer bounds
+    fn intersection<C: GetRectangularBounds>(&self, b: C) -> Option<Rect> {
+        self.bounding_rect.intersection(b.get_bounds())
+    }
+}
 
+impl GetRectangularBounds for Rect {
+    fn get_bounds(&self) -> Rect {
+        *self
+    }
+}
+
+impl GetRectangularBounds for TiltedRect {
+    fn get_bounds(&self) -> Rect {
+        self.bounding_rect
+    }
+}
+
+impl Intersects for Rect {
     // stolen from
     // https://referencesource.microsoft.com/#System.Drawing/commonui/System/Drawing/Rectangle.cs,438
     // because im dumb and lazy
-    fn intersection(a: Rect, b: Rect) -> Option<Rect> {
+    fn intersection<C: GetRectangularBounds>(&self, b: C) -> Option<Rect> {
+        let b = b.get_bounds();
+        let a = self;
         let x1 = cmp::max(a.x, b.x);
         let x2 = cmp::min(a.x + a.w, b.x + b.w);
         let y1 = cmp::max(a.y, b.y);
@@ -177,22 +223,64 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tilted_rect_intersection_works() {
+        // should be approx square rotated 45degrees
+        let t = TiltedRect::from_points(
+            Point { x: 0.0, y: 5.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 6.0, y: 1.0 },
+        );
+        
+        let r = Rect { x: 1, y: 1, w: 1, h: 1 };
+        assert_eq!(t.intersection(r), Some(r));
+        assert_eq!(r.intersection(t), Some(r));
+    }
+
+    #[test]
+    fn tilted_rect_bounds_are_correct() {
+        // should be approx square rotated 45degrees
+        let t = TiltedRect::from_points(
+            Point { x: 0.0, y: 5.0 },
+            Point { x: 5.0, y: 0.0 },
+            Point { x: 6.0, y: 1.0 },
+        );
+
+        assert_eq!(t.bounding_rect, Rect {
+            x: 0, y: 0,
+            w: 6, h: 6,
+        });
+
+        let t = TiltedRect::from_points(
+            Point { x: 1.0, y: 8.0 },
+            Point { x: 4.0, y: 2.0 },
+            Point { x: 4.8, y: 2.4 },
+        );
+
+        assert_eq!(t.bounding_rect, Rect {
+            x: 1, y: 2,
+            w: 4, h: 7,
+        });
+
+        // still works for regular rectangles:
+        let t = TiltedRect::from_points(
+            Point { x: 1.0, y: 5.0 },
+            Point { x: 1.0, y: 7.0 },
+            Point { x: 5.0, y: 5.0 },
+        );
+        assert_eq!(t.bounding_rect, Rect {
+            x: 1, y: 5,
+            w: 4, h: 2,
+        });
+    }
+
+    #[test]
     fn tilted_rect_contains_works() {
         // should be approx square rotated 45degrees
-        let mut t = TiltedRect {
-            ax: 5.0,
-            ay: 14.0,
-            bx: 11.0,
-            by: 20.0,
-            cx: 17.0,
-            cy: 14.0,
-            ab_dot: 0.0,
-            bc_dot: 0.0,
-            ab_vec: Vector { x: 0.0, y: 0.0 },
-            bc_vec: Vector { x: 0.0, y: 0.0 },
-        };
-        t.prepare();
-
+        let t = TiltedRect::from_points(
+            Point { x: 5.0, y: 14.0 },
+            Point { x: 11.0, y: 20.0 },
+            Point { x: 17.0, y: 14.0 },
+        );
 
         // exactly in the center should contain
         assert!(t.contains(11.0, 14.0));
@@ -261,7 +349,7 @@ mod tests {
             w: 10, h: 10,
         };
         // adjacent rects should not intersect
-        assert_eq!(Rect::intersection(r1, r2), None);
+        assert_eq!(r1.intersection(r2), None);
 
         // but one unit to the left of x, and
         // the intersection should be only one wide:
@@ -269,7 +357,7 @@ mod tests {
             x: 14, y: 2,
             w: 10, h: 10,
         };
-        assert_eq!(Rect::intersection(r1, r2), Some(Rect {
+        assert_eq!(r1.intersection(r2), Some(Rect {
             x: 14, y: 2, w: 1, h: 10,
         }));
 
@@ -278,15 +366,15 @@ mod tests {
             x: 0, y: 0,
             w: 100, h: 100,
         };
-        assert_eq!(Rect::intersection(r1, r3), Some(r1));
-        assert_eq!(Rect::intersection(r3, r1), Some(r1));
+        assert_eq!(r1.intersection(r3), Some(r1));
+        assert_eq!(r3.intersection(r1), Some(r1));
 
         // can be a smaller portion in the corner somewhere
         let r4 = Rect {
             x: 7, y: 7,
             w: 100, h: 100,
         };
-        assert_eq!(Rect::intersection(r4, r1), Some(Rect {
+        assert_eq!(r4.intersection(r1), Some(Rect {
             x: 7, y: 7,
             w: 8, h: 5,
         }));

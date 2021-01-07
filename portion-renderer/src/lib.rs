@@ -322,11 +322,11 @@ impl PortionRenderer {
             let layer = &self.layers[i];
             for layer_object_index in layer.objects.iter() {
                 let layer_object = &self.objects[*layer_object_index];
-                if let Some(intersection) = Rect::intersection(layer_object.current_bounds, *object_current_bounds) {
+                if let Some(intersection) = layer_object.current_bounds.intersection(*object_current_bounds) {
                     above_bounds.above_my_current.push(intersection);
                 }
                 if let Some(object_previous) = object_previous_bounds {
-                    if let Some(intersection) = Rect::intersection(layer_object.current_bounds, *object_previous) {
+                    if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous) {
                         above_bounds.above_my_previous.push(intersection);
                     }
                 }
@@ -354,7 +354,7 @@ impl PortionRenderer {
             let layer = &self.layers[i];
             for layer_object_index in layer.objects.iter() {
                 let layer_object = &self.objects[*layer_object_index];
-                if let Some(intersection) = Rect::intersection(layer_object.current_bounds, *object_previous_bounds) {
+                if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous_bounds) {
                     below_bounds.below_my_previous.push(BelowRegion {
                         region: intersection,
                         region_belongs_to: *layer_object_index,
