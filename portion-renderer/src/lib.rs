@@ -477,7 +477,7 @@ impl PortionRenderer {
 
     pub fn clear_pixels_from_below_object(&mut self, pb_red_index: usize, x: u32, y: u32, skip_below: &BelowRegions) -> bool {
         for below in skip_below.below_my_previous.iter() {
-            if below.region.contains(x, y) {
+            if below.region.contains_u32(x, y) {
                 let pixel = self.get_pixel_from_object_at(
                     below.region_belongs_to, x, y
                 );

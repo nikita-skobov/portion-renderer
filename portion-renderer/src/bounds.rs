@@ -40,6 +40,7 @@ pub struct TiltedRect {
 
 pub trait Contains {
     fn contains(&self, x: f32, y: f32) -> bool;
+    fn contains_u32(&self, x: u32, y: u32) -> bool;
 }
 
 #[inline(always)]
@@ -57,7 +58,7 @@ pub fn dot(u: &Vector, v: &Vector) -> f32 {
 
 pub fn should_skip_point(skip_regions: &Vec<Rect>, x: u32, y: u32) -> bool {
     for rect in skip_regions {
-        if rect.contains(x, y) { return true };
+        if rect.contains_u32(x, y) { return true };
     }
     false
 }
@@ -104,11 +105,27 @@ impl Rect {
             None
         }
     }
-    pub fn contains(&self, x: u32, y: u32) -> bool {
-        self.x <= x &&
-        x < self.x + self.w &&
-        self.y <= y &&
-        y < self.y + self.h
+}
+
+impl Contains for Rect {
+    #[inline(always)]
+    fn contains(&self, x: f32, y: f32) -> bool {
+        self.contains_u32(x as u32, y as u32)
+    }
+
+    #[inline(always)]
+    fn contains_u32(&self, x: u32, y: u32) -> bool {
+        // this is actually faster if its not inlined
+        // self.x <= x && self.y <= y && x < self.x + self.w && y < self.y + self.h
+
+        // but if its inlined, then this is faster:
+        let dum_arr = [
+            self.x <= x,
+            self.y <= y,
+            x < self.x + self.w,
+            y < self.y + self.h,
+        ];
+        dum_arr.iter().all(|p| *p == true)
     }
 }
 
@@ -139,6 +156,11 @@ impl Contains for TiltedRect {
             dot_bcbm <= dot_bcbc
         ];
         dum_arr.iter().all(|p| *p == true)
+    }
+
+    #[inline(always)]
+    fn contains_u32(&self, x: u32, y: u32) -> bool {
+        self.contains(x as f32, y as f32)
     }
 }
 
@@ -189,5 +211,34 @@ mod tests {
         // but one right or one below should fail
         assert!(! t.contains(16.0, 12.0));
         assert!(! t.contains(15.0, 11.0));
+    }
+
+    #[test]
+    fn rext_contains_works() {
+        let r = Rect {
+            x: 5,
+            y: 2,
+            w: 10,
+            h: 10,
+        };
+
+        // somewhere in middle
+        assert!(r.contains_u32(7, 7));
+
+        // all corners:
+        assert!(r.contains_u32(5, 2));
+        assert!(r.contains_u32(14, 2));
+        assert!(r.contains_u32(14, 11));
+        assert!(r.contains_u32(5, 11));
+
+        // one off from each corner should not contain
+        assert!(! r.contains_u32(4, 2));
+        assert!(! r.contains_u32(5, 1));
+        assert!(! r.contains_u32(15, 2));
+        assert!(! r.contains_u32(14, 1));
+        assert!(! r.contains_u32(15, 11));
+        assert!(! r.contains_u32(14, 12));
+        assert!(! r.contains_u32(4, 11));
+        assert!(! r.contains_u32(5, 12));
     }
 }
