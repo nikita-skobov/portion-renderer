@@ -43,6 +43,12 @@ pub trait Contains {
     fn contains_u32(&self, x: u32, y: u32) -> bool;
 }
 
+pub trait Intersects {
+    type Obj;
+
+    fn intersection(a: Self::Obj, b: Self::Obj) -> Option<Self::Obj>;
+}
+
 #[inline(always)]
 pub fn vector(x1: f32, y1: f32, x2: f32, y2: f32) -> Vector {
     Vector {
@@ -89,11 +95,13 @@ impl TiltedRect {
     }
 }
 
-impl Rect {
+impl Intersects for Rect {
+    type Obj = Rect;
+
     // stolen from
     // https://referencesource.microsoft.com/#System.Drawing/commonui/System/Drawing/Rectangle.cs,438
     // because im dumb and lazy
-    pub fn intersection(a: Rect, b: Rect) -> Option<Rect> {
+    fn intersection(a: Rect, b: Rect) -> Option<Rect> {
         let x1 = cmp::max(a.x, b.x);
         let x2 = cmp::min(a.x + a.w, b.x + b.w);
         let y1 = cmp::max(a.y, b.y);
@@ -240,5 +248,47 @@ mod tests {
         assert!(! r.contains_u32(14, 12));
         assert!(! r.contains_u32(4, 11));
         assert!(! r.contains_u32(5, 12));
+    }
+
+    #[test]
+    fn rect_intersection_works() {
+        let r1 = Rect {
+            x: 5, y: 2,
+            w: 10, h: 10,
+        };
+        let r2 = Rect {
+            x: 15, y: 2,
+            w: 10, h: 10,
+        };
+        // adjacent rects should not intersect
+        assert_eq!(Rect::intersection(r1, r2), None);
+
+        // but one unit to the left of x, and
+        // the intersection should be only one wide:
+        let r2 = Rect {
+            x: 14, y: 2,
+            w: 10, h: 10,
+        };
+        assert_eq!(Rect::intersection(r1, r2), Some(Rect {
+            x: 14, y: 2, w: 1, h: 10,
+        }));
+
+        // a rectangle entirely in another should be the smaller rect
+        let r3 = Rect {
+            x: 0, y: 0,
+            w: 100, h: 100,
+        };
+        assert_eq!(Rect::intersection(r1, r3), Some(r1));
+        assert_eq!(Rect::intersection(r3, r1), Some(r1));
+
+        // can be a smaller portion in the corner somewhere
+        let r4 = Rect {
+            x: 7, y: 7,
+            w: 100, h: 100,
+        };
+        assert_eq!(Rect::intersection(r4, r1), Some(Rect {
+            x: 7, y: 7,
+            w: 8, h: 5,
+        }));
     }
 }
