@@ -10,6 +10,7 @@ use portion_renderer;
 use portion_renderer::bounds::TiltedRect;
 use portion_renderer::bounds::Contains;
 use portion_renderer::bounds::Vector;
+use portion_renderer::bounds::Point;
 use portion_renderer::bounds::Rect;
 use portion_renderer::match_matrix;
 use portion_renderer::projection::ComputePoint;
@@ -49,19 +50,11 @@ fn from_elem(c: &mut Criterion) {
         w: 700,
         h: 800,
     };
-    let mut tilted_rect = TiltedRect {
-        ax: 0.0,
-        ay: 400.0,
-        bx: 600.0,
-        by: 0.0,
-        cx: 876.94,
-        cy: 415.34,
-        ab_vec: Vector { x: 0.0, y: 0.0 },
-        ab_dot: 0.0,
-        bc_vec: Vector { x: 0.0, y: 0.0 },
-        bc_dot: 0.0,
-    };
-    tilted_rect.prepare();
+    let tilted_rect = TiltedRect::from_points(
+        Point { x: 0.0, y: 400.0 },
+        Point { x: 600.0, y: 0.0 },
+        Point { x: 876.94, y: 415.34, },
+    );
     let data2 = (tilted_rect, points2);
     let data3 = (rect, points3);
 

@@ -1,10 +1,5 @@
 use std::cmp;
 
-use super::projection::Matrix;
-use super::projection::RotateMatrix;
-use super::projection::RotateTranslateMatrix;
-use super::projection::ComputePoint;
-
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Rect {
     pub x: u32,
