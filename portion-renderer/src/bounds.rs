@@ -1,4 +1,5 @@
 use std::cmp;
+use super::Matrix;
 
 pub static EMPTY_RECT: Rect = Rect { x: 0, y: 0, w: 0, h: 0 };
 
@@ -83,7 +84,31 @@ pub fn sorted_values(a: &Point, b: &Point, c: &Point) -> [[f32; 3]; 2] {
     return [ x, y ];
 }
 
+impl Point {
+    pub fn transform_by(&mut self, matrix: &Matrix) {
+        let (x, y) = matrix.mul_point(self.x, self.y);
+        self.x = x;
+        self.y = y;
+    }
+}
+
 impl TiltedRect {
+    /// given an original, non-rotated rectangle. create a tilted rect bounds
+    /// via the original bounds and the desired transformation matrix.
+    pub fn from_bounds_and_matrix(bounds: Rect, matrix: Matrix) -> TiltedRect {
+        let x = bounds.x as f32;
+        let y = bounds.y as f32;
+        let max_x = x + bounds.w as f32 - 1.0;
+        let max_y = y + bounds.h as f32 - 1.0;
+        let mut a = Point { x, y };
+        let mut b = Point { x: max_x, y };
+        let mut c = Point { x: max_x, y: max_y };
+        a.transform_by(&matrix);
+        b.transform_by(&matrix);
+        c.transform_by(&matrix);
+        TiltedRect::from_points(a, b, c)
+    }
+
     pub fn prepare(&mut self) {
         self.ab_vec = vector(self.ax, self.ay, self.bx, self.by);
         self.bc_vec = vector(self.bx, self.by, self.cx, self.cy);
