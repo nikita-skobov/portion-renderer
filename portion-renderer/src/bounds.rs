@@ -307,6 +307,56 @@ mod tests {
     }
 
     #[test]
+    fn tilted_rect_contains_works_regardless_of_abc() {
+        // shouldnt matter which points you choose for ABC as long
+        // as B is between A and C.
+        // this test is the same as the 'tilted_rect_contains_works' test
+        // but with different points for A B C
+
+        let left = Point { x: 5.0, y: 14.0 };
+        let top = Point { x: 11.0, y: 8.0 };
+        let right = Point { x: 17.0, y: 14.0 };
+        let bottom = Point { x: 11.0, y: 20.0 };
+
+        let combinations = vec![
+            (left, bottom, right),
+            (bottom, right, top),
+            (right, top, left),
+            (top, left, bottom)
+        ];
+
+        for (a, b, c) in combinations {
+            // should be approx square rotated 45degrees
+            let t = TiltedRect::from_points(a, b, c);
+            // exactly in the center should contain
+            assert!(t.contains(11.0, 14.0));
+
+            // // below 8 should not
+            assert!(t.contains(11.0, 9.0));
+            assert!(t.contains(11.0, 8.0));
+            assert!(! t.contains(11.0, 7.0));
+
+            // widest is at y = 14?
+            assert!(!t.contains(4.0, 14.0));
+            assert!(t.contains(5.0, 14.0));
+            assert!(t.contains(17.0, 14.0));
+            assert!(! t.contains(18.0, 14.0));
+
+            // on the upper left edge:
+            assert!(t.contains(8.0, 17.0));
+            // but one left or one above should fail
+            assert!(! t.contains(7.0, 17.0));
+            assert!(! t.contains(8.0, 18.0));
+
+            // on the bottom right edge:
+            assert!(t.contains(15.0, 12.0));
+            // but one right or one below should fail
+            assert!(! t.contains(16.0, 12.0));
+            assert!(! t.contains(15.0, 11.0));
+        }
+    }
+
+    #[test]
     fn rext_contains_works() {
         let r = Rect {
             x: 5,
