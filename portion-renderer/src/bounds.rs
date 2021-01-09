@@ -1,5 +1,7 @@
 use std::cmp;
 
+pub static EMPTY_RECT: Rect = Rect { x: 0, y: 0, w: 0, h: 0 };
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Rect {
     pub x: u32,

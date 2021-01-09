@@ -1,4 +1,3 @@
-use std::cmp;
 use std::ops::Index;
 
 pub mod portioner;
@@ -9,6 +8,7 @@ pub use projection::Matrix;
 pub use transform::*;
 pub use portioner::*;
 pub use bounds::*;
+pub use tightvec::TightVec;
 
 #[macro_export]
 macro_rules! get_red_index {
@@ -17,76 +17,84 @@ macro_rules! get_red_index {
     };
 }
 
+#[macro_export]
+macro_rules! get_pixel_start {
+    ($x:expr, $y:expr, $pitch:expr, $indices_per_pixel:expr) => {
+        $y * $pitch + ($x * $indices_per_pixel)
+    }
+}
+
 pub const PIXEL_BLANK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 0 };
 pub const PIXEL_BLACK: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 0, a: 255 };
 pub const PIXEL_RED: RgbaPixel = RgbaPixel { r: 255, g: 0, b: 0, a: 255 };
 pub const PIXEL_GREEN: RgbaPixel = RgbaPixel { r: 0, g: 255, b: 0, a: 255 };
 pub const PIXEL_BLUE: RgbaPixel = RgbaPixel { r: 0, g: 0, b: 255, a: 255 };
 
-pub struct PortionRenderer {
-    pixel_buffer: Vec<u8>,
-    clear_buffer: Vec<u8>,
+// indices per pixel
+pub const ABGR8888_IPP: u32 = 4;
+pub const ARGB8888_IPP: u32 = 4;
+pub const RGBA8888_IPP: u32 = 4;
+pub const BGRA8888_IPP: u32 = 4;
+pub const RGBA32_IPP: u32 = 1;
+
+static EMPTY_OBJECT: Object = Object { previous_bounds: EMPTY_RECT, current_bounds: EMPTY_RECT, layer_index: 0, texture_index: 0, initial_render: false, texture_color: None };
+
+pub struct PortionRenderer<T> {
+    pixel_buffer: Vec<T>,
+    clear_buffer: Vec<T>,
     portioner: Portioner,
 
     width: u32,
     height: u32,
-    indices_per_pixel: u32, // probably only 3 or 4
+    pitch: usize,
+    pixel_format: PixelFormatEnum,
+    indices_per_pixel: u32,
 
-    textures: Vec<Texture>,
-    layers: Vec<ManagedLayer>,
-    objects: Vec<Object>,
-
-    // TODO: need to know what
-    // order the pixels are in
-    // pixel_format: PixelFormatEnum
+    textures: TightVec<Texture<T>>,
+    layers: Vec<Layer>,
+    objects: TightVec<Object>,
 }
 
-pub struct ManagedLayer {
-    index: u32,
-    /// a vector of indices to the objects that exist on this layer
-    /// these objects can be accessed by PortionRenderer.objects[ManagedLayer.objects[...]]
-    objects: Vec<usize>,
-    /// a vector of indices to the objects on this layer that need updating
-    /// these objects can be accessed by
-    /// PortionRenderer.objects[ManagedLayer.objects[ManagedLayer.updates[...]]]
-    updates: Vec<usize>,
+// TODO: actually use these.
+// right now implementation just assumes RGBA8888....
+pub enum PixelFormatEnum {
+    ABGR8888,
+    ARGB8888,
+    RGBA8888,
+    BGRA8888,
+    RGBA32,
 }
 
-#[derive(Copy, Clone)]
-pub enum ObjectRenderMode {
-    /// RenderAsMuchAsPossible will
-    /// render all of the objects texture that exists
-    /// and then stops if the texture is smaller than the objects bounds.
-    /// if the texture is larger than the bounds, then this mode
-    /// will render up to the bounds, and then discard the rest of
-    /// the texture
-    RenderAsMuchAsPossible,
-    /// RenderToFit will always stretch the texture
-    /// to fit it into the bounds
-    RenderToFit,
+pub struct Layer {
+    /// a human friendly index
+    /// a Layer is stored in a vec where its actual index
+    /// does not necessarily correspond to this index.
+    /// this value just lets you easily create layers via:
+    /// layer {index: 0}, layer {index: 10000}, layer {index: 500}, etc.
+    pub index: u32,
+    /// a vector of objects indices that exist on this layer
+    /// you can get the object via Renderer.objects[Layer.objects[...]]
+    pub objects: Vec<usize>,
+    /// a vector of objects indices on this layer that need to be updated next render cycle
+    /// you can get the objects via Renderer.objects[Layer.objects[...]]
+    pub updates: Vec<usize>,
 }
 
-pub struct Texture {
-    data: Vec<u8>,
-    width: usize,
+#[derive(Clone)]
+pub struct Texture<T> {
+    pub data: Vec<T>,
+    pub width: u32,
+    pub height: u32,
 }
 
+#[derive(Clone)]
 pub struct Object {
-    /// most objects will have a reference
-    /// to a vector of their texture pixels
-    texture_index: usize,
-    /// some objects might choose to be a single color,
-    /// in which case they will be rendered this pixel color
-    texture_color: Option<RgbaPixel>,
-
-    /// the index of the layer that this
-    /// object exists on
-    layer: usize,
-
-    render_mode: ObjectRenderMode,
-
-    current_bounds: Rect,
-    previous_bounds: Option<Rect>,
+    pub texture_color: Option<RgbaPixel>,
+    pub texture_index: usize,
+    pub layer_index: usize,
+    pub current_bounds: Rect,
+    pub previous_bounds: Rect,
+    pub initial_render: bool,
 }
 
 #[derive(Debug, Default)]
@@ -107,17 +115,16 @@ pub struct BelowRegions {
     below_my_previous: Vec<BelowRegion>,
 }
 
-pub enum ObjectTextureType {
-    ObjectTextureColor(RgbaPixel),
-    ObjectTextureVec(Vec<u8>, usize),
-}
-
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub struct RgbaPixel {
     pub r: u8,
     pub g: u8,
     pub b: u8,
     pub a: u8,
+}
+
+pub trait SetPixel<T> {
+    fn set_pixel(&mut self, pixel: &[T]);
 }
 
 pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
@@ -133,13 +140,66 @@ pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
     out_vec
 }
 
-impl ManagedLayer {
-    /// ManagedLayer.objects[] contains a vec of object indices
-    /// that exist on the PortionRenderer. this method takes one of those
-    /// indices and returns an option of the local index of ManagedLayer.objects
-    /// where that index exists
-    pub fn get_local_object_index(&self, object_index: usize) -> Option<usize> {
-        self.objects.iter().position(|p| *p == object_index)
+impl SetPixel<u8> for &mut [u8] {
+    #[inline(always)]
+    fn set_pixel(&mut self, pixel: &[u8]) {
+        self[0] = pixel[0];
+        self[1] = pixel[1];
+        self[2] = pixel[2];
+        self[3] = pixel[3];
+    }
+}
+
+impl PixelFormatEnum {
+    #[inline(always)]
+    pub fn indices_per_pixel(&self) -> u32 {
+        match self {
+            PixelFormatEnum::ABGR8888 => ABGR8888_IPP,
+            PixelFormatEnum::ARGB8888 => ARGB8888_IPP,
+            PixelFormatEnum::RGBA8888 => RGBA8888_IPP,
+            PixelFormatEnum::BGRA8888 => BGRA8888_IPP,
+            PixelFormatEnum::RGBA32 => RGBA32_IPP,
+        }
+    }
+}
+
+impl<'a> Default for Object {
+    fn default() -> Self {
+        EMPTY_OBJECT.clone()
+    }
+}
+
+impl Layer {
+    /// returns the layer's actual index of the Vec its in,
+    /// whereas the layer_index: u32 is a human friendly index
+    /// like 0, 1000, 1001, etc.
+    pub fn get_or_make_layer(layers: &mut Vec<Layer>, layer_index: u32) -> usize {
+        let mut insert_at_index = 0;
+        let mut update_at_index = None;
+        let last_i = layers.len() - 1;
+        for (i, layer) in layers.iter().enumerate() {
+            if layer.index == layer_index {
+                update_at_index = Some(i);
+                break;
+            } else if layer.index > layer_index {
+                insert_at_index = i;
+                break;
+            } else if i == last_i {
+                insert_at_index = i + 1;
+                break;
+            }
+        }
+
+        if let Some(i) = update_at_index {
+            i
+        } else {
+            layers.push(Layer {
+                index: layer_index,
+                objects: vec![],
+                updates: vec![],
+            });
+            insert_at_index
+        }
     }
 }
 
@@ -149,8 +209,8 @@ impl ManagedLayer {
 /// performant if you are accessing many pixels at once
 /// because the indices (x, y) are probably not cached
 /// between calls to the .index((x, y)) method
-impl Index<(u32, u32)> for PortionRenderer {
-    type Output = [u8];
+impl<T> Index<(u32, u32)> for PortionRenderer<T> {
+    type Output = [T];
 
     fn index(&self, index: (u32, u32)) -> &Self::Output {
         let red_index = get_red_index!(index.0, index.1, self.width, self.indices_per_pixel) as usize;
@@ -172,36 +232,53 @@ impl From<&[u8]> for RgbaPixel {
     }
 }
 
-impl AsRef<Portioner> for PortionRenderer {
+impl<T> AsRef<Portioner> for PortionRenderer<T> {
     fn as_ref(&self) -> &Portioner { &self.portioner }
 }
-impl AsMut<Portioner> for PortionRenderer {
+impl<T> AsMut<Portioner> for PortionRenderer<T> {
     fn as_mut(&mut self) -> &mut Portioner { &mut self.portioner }
 }
-impl AsMut<Vec<u8>> for PortionRenderer {
-    fn as_mut(&mut self) -> &mut Vec<u8> { &mut self.pixel_buffer }
+impl<T> AsMut<Vec<T>> for PortionRenderer<T> {
+    fn as_mut(&mut self) -> &mut Vec<T> { &mut self.pixel_buffer }
 }
 
-impl PortionRenderer {
+/// constructors, and some other methods
+/// requires T to have a default, which T should be
+/// either u32 or u8,
+impl<T: Default + Clone> PortionRenderer<T> {
+    /// provides sensible default of 4x4 portion grid,
+    /// and RGBA8888 pixel format. if you dont like these defaults,
+    /// use new_ex instead and manually set your starting parameters
     pub fn new(
+        width: u32,
+        height: u32,
+    ) -> PortionRenderer<T> {
+        PortionRenderer::new_ex(width, height, 4, 4, PixelFormatEnum::RGBA8888)
+    }
+
+    pub fn new_ex(
         width: u32,
         height: u32,
         num_rows: u32,
         num_cols: u32,
-    ) -> PortionRenderer {
-        let indices_per_pixel = 4; // TODO: dont assume
+        pixel_format: PixelFormatEnum,
+    ) -> PortionRenderer<T> {
+        let indices_per_pixel = pixel_format.indices_per_pixel();
         let num_pixels = width * height;
         let data_len: usize = (num_pixels * indices_per_pixel) as usize;
-        let pixel_buffer = vec![0; data_len];
+        let pixel_buffer = vec![T::default(); data_len];
+        let pitch = (width * indices_per_pixel) as usize;
         PortionRenderer {
             clear_buffer: pixel_buffer.clone(),
             pixel_buffer,
             width,
+            pitch,
             height,
             indices_per_pixel,
-            layers: vec![ManagedLayer { index: 0, objects: vec![], updates: vec![], }],
-            textures: vec![],
-            objects: vec![],
+            pixel_format,
+            layers: vec![Layer { index: 0, objects: vec![], updates: vec![], }],
+            textures: TightVec::new(),
+            objects: TightVec::new(),
             portioner: Portioner::new(width, height, num_rows, num_cols),
         }
     }
@@ -212,98 +289,84 @@ impl PortionRenderer {
     pub fn set_clear_buffer(&mut self) {
         self.clear_buffer = self.pixel_buffer.clone();
     }
+}
 
+impl<T> PortionRenderer<T> {
     /// returns the layer's actual index of the Vec its in,
     /// whereas the layer_index: u32 is a human friendly index
     /// like 0, 1000, 1001, etc.
     pub fn get_or_make_layer(&mut self, layer_index: u32) -> usize {
-        let mut insert_at_index = 0;
-        let mut update_at_index = None;
-        let last_i = self.layers.len() - 1;
-        for (i, layer) in self.layers.iter().enumerate() {
-            if layer.index == layer_index {
-                update_at_index = Some(i);
-                break;
-            } else if layer.index > layer_index {
-                insert_at_index = i;
-                break;
-            } else if i == last_i {
-                insert_at_index = i + 1;
-                break;
-            }
-        }
-
-        if let Some(i) = update_at_index {
-            i
-        } else {
-            self.layers.push(ManagedLayer {
-                index: layer_index,
-                objects: vec![],
-                updates: vec![],
-            });
-            insert_at_index
-        }
+        Layer::get_or_make_layer(&mut self.layers, layer_index)
     }
 
-    pub fn create_object(&mut self, layer_index: u32, bounds: Rect, texture: ObjectTextureType) -> usize {
-        let (texture_index, texture_color) = match texture {
-            ObjectTextureType::ObjectTextureColor(c) => {
-                (0, Some(c))
-            }
-            ObjectTextureType::ObjectTextureVec(v, w) => {
-                let next_index = self.textures.len();
-                self.textures.push(Texture {
-                    data: v,
-                    width: w,
-                });
-                (next_index, None)
-            }
-        };
-        let new_object_index = self.objects.len();
+    pub fn set_object_updated(&mut self, object_index: usize) {
+        let layer_index = self.objects[object_index].layer_index;
+        self.set_object_updated_on_layer(object_index, layer_index)
+    }
+
+    fn set_object_updated_on_layer(&mut self, object_index: usize, layer_index: usize) {
+        self.layers[layer_index].objects.push(object_index);
+        self.layers[layer_index].updates.push(object_index);
+    }
+
+    pub fn create_object(
+        &mut self, layer_index: u32, bounds: Rect,
+        texture: Option<Texture<T>>,
+        color: Option<RgbaPixel>,
+    ) -> usize {
+        let texture_index = if let Some(txt) = texture {
+            self.textures.insert(txt)
+        } else { 0 };
         let layer_index = self.get_or_make_layer(layer_index);
         let new_object = Object {
-            texture_index: texture_index,
-            texture_color: texture_color,
+            texture_color: color,
+            layer_index,
+            texture_index,
             current_bounds: bounds,
-            previous_bounds: None,
-            render_mode: ObjectRenderMode::RenderAsMuchAsPossible,
-            layer: layer_index,
+            previous_bounds: bounds,
+            initial_render: true,
         };
-        self.objects.push(new_object);
-        let updated_object_index = self.layers[layer_index].objects.len();
-        self.layers[layer_index].objects.push(new_object_index);
-        self.layers[layer_index].updates.push(updated_object_index);
+        let new_object_index = self.objects.insert(new_object);
+        self.set_object_updated_on_layer(new_object_index, layer_index);
         new_object_index
     }
 
-    pub fn create_object_from_color(&mut self, layer_index: u32, bounds: Rect, color: RgbaPixel) -> usize {
-        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureColor(color))
+    pub fn create_object_from_color(
+        &mut self, layer_index: u32, bounds: Rect,
+        color: RgbaPixel
+    ) -> usize {
+        self.create_object(layer_index, bounds, None, Some(color))
     }
 
-    pub fn create_object_from_texture(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>, texture_width: usize) -> usize {
-        self.create_object(layer_index, bounds, ObjectTextureType::ObjectTextureVec(texture, texture_width))
+    pub fn create_object_from_texture(
+        &mut self, layer_index: u32, bounds: Rect,
+        texture: Vec<T>, texture_width: u32, texture_height: u32,
+    ) -> usize {
+        let texture = Texture {
+            data: texture,
+            width: texture_width,
+            height: texture_height,
+        };
+        self.create_object(layer_index, bounds, Some(texture), None)
     }
 
-    pub fn create_object_from_texture_exact(&mut self, layer_index: u32, bounds: Rect, texture: Vec<u8>) -> usize {
-        self.create_object_from_texture(layer_index, bounds, texture, bounds.w as usize)
-    }
-
-    pub fn draw_grid_outline(&mut self) {
-        draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
+    /// unlike `create_object_from_texture`, this method assumes that the bounds of the object
+    /// being created are exactly the same as the bounds of the texture vec being passed in.
+    /// it is your responsibility as the user to ensure that:
+    /// bounds.w * bounds.h = texture.len() * indices_per_pixel
+    /// where the indices_per_pixel is the same as what the renderer is using.
+    /// eg: if using pixel format RGBA8888, and a bounds.w and bounds.h == 2, then
+    /// the texture vec should be 2 * 2 * 4 = 16 elements long.
+    pub fn create_object_from_texture_exact(
+        &mut self, layer_index: u32, bounds: Rect,
+        texture: Vec<T>
+    ) -> usize {
+        self.create_object_from_texture(layer_index, bounds, texture, bounds.w, bounds.h)
     }
 
     pub fn object_needs_drawing(&mut self, object_index: usize) -> bool {
         let object = &self.objects[object_index];
-        match object.previous_bounds {
-            Some(prev_bounds) => {
-                let current_bounds = object.current_bounds;
-                current_bounds.x != prev_bounds.x ||
-                current_bounds.y != prev_bounds.y ||
-                current_bounds.w != prev_bounds.w ||
-                current_bounds.h != prev_bounds.h
-            }
-            None => true,
-        }
+        object.previous_bounds != object.current_bounds
     }
 
     /// layer_index is usize of the index of the layer as in PortionRenderer.layers[layer_index]
@@ -325,10 +388,8 @@ impl PortionRenderer {
                 if let Some(intersection) = layer_object.current_bounds.intersection(*object_current_bounds) {
                     above_bounds.above_my_current.push(intersection);
                 }
-                if let Some(object_previous) = object_previous_bounds {
-                    if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous) {
-                        above_bounds.above_my_previous.push(intersection);
-                    }
+                if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous_bounds) {
+                    above_bounds.above_my_previous.push(intersection);
                 }
             }
         }
@@ -343,11 +404,7 @@ impl PortionRenderer {
         if layer_index == 0 {
             return BelowRegions::default();
         }
-        // if theres no previous bounds, we dont need to iterate
-        let object_previous_bounds = match &self.objects[object_index].previous_bounds {
-            None => return BelowRegions::default(),
-            Some(region) => region,
-        };
+        let object_previous_bounds = &self.objects[object_index].previous_bounds;
         let mut below_bounds = BelowRegions::default();
         let start_layer_check_at = layer_index;
         for i in (0..start_layer_check_at).rev() {
@@ -366,31 +423,9 @@ impl PortionRenderer {
         below_bounds
     }
 
-    pub fn draw_all_layers(&mut self) {
-        // TODO: can we avoid drawing bottom layers
-        // if a top layer fully covers it up?
-        let mut draw_object_indices = vec![];
-        for (layer_index, layer) in self.layers.iter_mut().enumerate() {
-            // make sure to drain so we remove these updates
-            // and prevent them from showing up next draw
-            for update_index in layer.updates.drain(..) {
-                let object_index = layer.objects[update_index];
-                draw_object_indices.push((layer_index, object_index));
-            }
-        }
-
-        for (layer_index, object_index) in draw_object_indices {
-            let above_regions = self.get_regions_above_object(object_index, layer_index);
-            let below_regions = self.get_regions_below_object(object_index, layer_index);
-            self.draw_object(object_index, above_regions, below_regions);
-        }
-    }
-
     pub fn set_layer_update(&mut self, object_index: usize) {
-        let layer_index = self.objects[object_index].layer;
-        if let Some(local_object_index) = self.layers[layer_index].get_local_object_index(object_index) {
-            self.layers[layer_index].updates.push(local_object_index);
-        }
+        let layer_index = self.objects[object_index].layer_index;
+        self.layers[layer_index].updates.push(object_index);
     }
 
     pub fn move_object_x_by(&mut self, object_index: usize, by: i32) {
@@ -420,59 +455,64 @@ impl PortionRenderer {
             self.set_layer_update(object_index);
         }
     }
+}
 
-    pub fn set_object_render_mode(&mut self, object_index: usize, render_mode: ObjectRenderMode) {
-        self.objects[object_index].render_mode = render_mode;
+
+/// This is the implementation for any pixel format in 8888 format
+/// TODO: implement these methods for 32 format
+impl PortionRenderer<u8> {
+    pub fn draw(&mut self, pixels: &[u8], bounds: Rect) {
+        let x = bounds.x as usize;
+        let y = bounds.y as usize;
+        let w = bounds.w as usize;
+        let h = bounds.h as usize;
+        let self_width = self.width as usize;
+        let indices_per_pixel = self.indices_per_pixel as usize;
+        let mut pixels_index = 0;
+        for i in y..(y + h) {
+            for j in x..(x + w) {
+                let red_index = get_red_index!(j, i, self_width, indices_per_pixel);
+                let next_index = red_index + indices_per_pixel;
+                unsafe {
+                    let mut dest_pixel = self.pixel_buffer.get_unchecked_mut(red_index..next_index);
+                    let src_pixel = pixels.get_unchecked(pixels_index..pixels_index + indices_per_pixel);
+                    dest_pixel.set_pixel(src_pixel);
+                }
+
+                pixels_index += 4;
+            }
+        }
     }
 
-    pub fn get_pixel_from_object_at(&self, object_index: usize, x: u32, y: u32) -> Option<RgbaPixel> {
-        if let Some(pixel) = self.objects[object_index].texture_color {
-            return Some(pixel);
+    pub fn get_pixel_from_object_at(
+        &self,
+        object_index: usize,
+        x: u32, y: u32
+    ) -> Option<RgbaPixel> {
+        if let Some(color) = self.objects[object_index].texture_color {
+            return Some(color);
         }
 
         let texture_index = self.objects[object_index].texture_index;
+        let texture = &self.textures[texture_index];
+
         let current_bounds = self.objects[object_index].current_bounds;
-        let render_mode = self.objects[object_index].render_mode;
-        let texture_width = self.textures[texture_index].width;
         // it should be guaranteed that x and y exist within the objects current bounds
         if x < current_bounds.x || y < current_bounds.y {
             panic!("Called get_pixel_from_object_at with ({}, {}) but objects bounds are {:?}", x, y, current_bounds);
         }
 
+        // TODO: what if the object has a matrix transormation?
+        // need to handle that here to get the pixel value after transform
+        // currently this assumes the objects bounds are the same as the texture bounds!
         let local_x = x - current_bounds.x;
         let local_y = y - current_bounds.y;
-        if let ObjectRenderMode::RenderAsMuchAsPossible = render_mode {
-            let red_index = get_red_index!(local_x, local_y, current_bounds.w, self.indices_per_pixel) as usize;
-            let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+4)) {
-                Some(u8_slice) => u8_slice.into(),
-                None => return None,
-            };
-            Some(pixel)
-        } else if let ObjectRenderMode::RenderToFit = render_mode {
-            let texture_pixels_len = self.textures[texture_index].data.len();
-            let indices_per_pixel = self.indices_per_pixel as usize;
-            let texture_height = (texture_pixels_len / indices_per_pixel) / texture_width;
-            let width_stretch_factor = current_bounds.w / texture_width as u32;
-            let height_stretch_factor = current_bounds.h / texture_height as u32;
-
-            let local_x = local_x / width_stretch_factor;
-            let local_y = local_y / height_stretch_factor;
-            let local_x = if local_x >= texture_width as u32 {
-                texture_width as u32 - 1
-            } else { local_x };
-            let local_y = if local_y >= texture_height as u32 {
-                texture_height as u32 - 1
-            } else { local_y };
-
-            let red_index = get_red_index!(local_x, local_y, texture_width as u32, self.indices_per_pixel) as usize;
-            let pixel: RgbaPixel = match self.textures[texture_index].data.get(red_index..(red_index+indices_per_pixel)) {
-                Some(u8_slice) => u8_slice.into(),
-                None => return None,
-            };
-            Some(pixel)
-        } else {
-            None
-        }
+        let red_index = get_red_index!(local_x, local_y, current_bounds.w, self.indices_per_pixel) as usize;
+        let pixel: RgbaPixel = match texture.data.get(red_index..(red_index+4)) {
+            Some(u8_slice) => u8_slice.into(),
+            None => return None,
+        };
+        Some(pixel)
     }
 
     pub fn clear_pixels_from_below_object(&mut self, pb_red_index: usize, x: u32, y: u32, skip_below: &BelowRegions) -> bool {
@@ -485,7 +525,7 @@ impl PortionRenderer {
                     if pixel.a == 0 {
                         return false;
                     }
-                    // println!("Undoing ({}, {}) via clearBelow: {:?}", x, y, pixel);
+
                     self.pixel_buffer[pb_red_index] = pixel.r;
                     self.pixel_buffer[pb_red_index + 1] = pixel.g;
                     self.pixel_buffer[pb_red_index + 2] = pixel.b;
@@ -499,219 +539,167 @@ impl PortionRenderer {
         false
     }
 
-    pub fn draw_stretched(&mut self, pixels: &[u8], pixel_width: u32, pixel_height: u32) {
-        let width_stretch_factor = self.width / pixel_width;
-        let height_stretch_factor = self.height / pixel_height;
-        let width = self.width;
-        let height = self.height;
-        let mut pixel_y = 0;
-        for i in 0..height {
-            let mut pixel_x = 0;
-            for j in 0..width {
-                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
-                let pixel_red_index = get_red_index!(pixel_x, pixel_y, pixel_width, 4) as usize;
-
-                self.pixel_buffer[red_index] = pixels[pixel_red_index];
-                self.pixel_buffer[red_index + 1] = pixels[pixel_red_index + 1];
-                self.pixel_buffer[red_index + 2] = pixels[pixel_red_index + 2];
-                self.pixel_buffer[red_index + 3] = pixels[pixel_red_index + 3];
-
-                if j != 0 && j % width_stretch_factor == 0 {
-                    pixel_x += 1;
-                }
+    pub fn draw_all_layers(&mut self) {
+        // TODO: can we avoid drawing bottom layers
+        // if a top layer fully covers it up?
+        let mut draw_object_indices = vec![];
+        for (layer_index, layer) in self.layers.iter_mut().enumerate() {
+            // make sure to drain so we remove these updates
+            // and prevent them from showing up next draw
+            for object_index in layer.updates.drain(..) {
+                draw_object_indices.push((layer_index, object_index));
             }
-            if i != 0 && i % height_stretch_factor == 0 {
-                pixel_y += 1;
+        }
+
+        for (layer_index, object_index) in draw_object_indices {
+            let above_regions = self.get_regions_above_object(object_index, layer_index);
+            let below_regions = self.get_regions_below_object(object_index, layer_index);
+            self.draw_object(object_index, above_regions, below_regions);
+        }
+    }
+
+    pub fn draw_pixel(
+        &mut self, pixel: RgbaPixel,
+        skip_above: AboveRegions,
+        min_y: u32, max_y: u32,
+        min_x: u32, max_x: u32,
+    ) {
+        for i in min_y..max_y {
+            for j in min_x..max_x {
+                if should_skip_point(&skip_above.above_my_current, j, i) {
+                    continue;
+                }
+                self.portioner.take_pixel(j, i);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: pixel format???
+                self.pixel_buffer[red_index] = pixel.r;
+                self.pixel_buffer[red_index + 1] = pixel.g;
+                self.pixel_buffer[red_index + 2] = pixel.b;
+                self.pixel_buffer[red_index + 3] = pixel.a;
             }
         }
     }
 
-    pub fn draw(&mut self, pixels: &[u8], bounds: Rect) {
-        let x = bounds.x;
-        let y = bounds.y;
-        let w = bounds.w;
-        let h = bounds.h;
-        let mut pixels_index = 0;
-        for i in y..(y + h) {
-            for j in x..(x + w) {
-                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
-                self.pixel_buffer[red_index] = pixels[pixels_index];
-                self.pixel_buffer[red_index + 1] = pixels[pixels_index + 1];
-                self.pixel_buffer[red_index + 2] = pixels[pixels_index + 2];
-                self.pixel_buffer[red_index + 3] = pixels[pixels_index + 3];
+    pub fn draw_exact(
+        &mut self, texture_index: usize,
+        skip_above: AboveRegions,
+        min_y: u32, max_y: u32,
+        min_x: u32, max_x: u32,
+    ) {
+        let item_pixels = &self.textures[texture_index].data;
+        let indices_per_pixel = self.indices_per_pixel as usize;
+        let mut item_pixel_index = 0;
+        for i in min_y..max_y {
+            for j in min_x..max_x {
+                // if the alpha value is 0, skip this pixel
+                if item_pixels[item_pixel_index + 3] == 0 {
+                    continue;
+                }
+                if should_skip_point(&skip_above.above_my_current, j, i) {
+                    continue;
+                }
 
-                pixels_index += 4;
+                self.portioner.take_pixel(j, i);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: pixel format???
+                self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
+                self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
+                self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
+                self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
+                item_pixel_index += indices_per_pixel;
+            }
+        }
+    }
+
+    pub fn clear_object_previous_bounds(
+        &mut self,
+        skip_above: &AboveRegions,
+        skip_below: &BelowRegions,
+        min_y: u32, max_y: u32,
+        min_x: u32, max_x: u32,
+    ) {
+        let should_try_clear_below = !skip_below.below_my_previous.is_empty();
+        for i in min_y..max_y {
+            for j in min_x..max_x {
+                if should_skip_point(&skip_above.above_my_previous, j, i) {
+                    continue;
+                }
+                self.portioner.take_pixel(j, i);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+
+                // try to clear this pixel from what was
+                // underneath it first
+                if should_try_clear_below && self.clear_pixels_from_below_object(
+                    red_index, j, i, &skip_below
+                ) { continue; }
+
+                self.pixel_buffer[red_index] = self.clear_buffer[red_index];
+                self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
+                self.pixel_buffer[red_index + 2] = self.clear_buffer[red_index + 2];
+                self.pixel_buffer[red_index + 3] = self.clear_buffer[red_index + 3];
             }
         }
     }
 
     pub fn draw_object(&mut self, object_index: usize, skip_above: AboveRegions, skip_below: BelowRegions) {
-        // println!("\n----------------");
-        let previous_bounds = self.objects[object_index].previous_bounds;
-        let indices_per_pixel = self.indices_per_pixel as usize;
-        if let Some(prev) = previous_bounds {
-            // println!("Undoing region: {:#?}", prev);
-            // println!("Skip below is: {:#?}", skip_below);
-            let should_try_clear_below = !skip_below.below_my_previous.is_empty();
-            let prev_x = prev.x;
-            let prev_y = prev.y;
-            let prev_w = prev.w;
-            let prev_h = prev.h;
-            for i in prev_y..(prev_y + prev_h) {
-                for j in prev_x..(prev_x + prev_w) {
-                    if should_skip_point(&skip_above.above_my_previous, j, i) {
-                        // println!("Skipping undo of: ({}, {})", j, i);
-                        continue;
-                    }
-                    self.portioner.take_pixel(j, i);
-                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                    let red_index = red_index as usize;
+        let (
+            previous_bounds, is_first_time, texture_index, object_color,
+        ) = {
+            let object = &self.objects[object_index];
+            (object.previous_bounds, object.initial_render, object.texture_index, object.texture_color)
+        };
+        let prev_x = previous_bounds.x;
+        let prev_y = previous_bounds.y;
+        let prev_w = previous_bounds.w;
+        let prev_h = previous_bounds.h;
+        if !is_first_time {
+            self.clear_object_previous_bounds(
+                &skip_above,
+                &skip_below,
+                prev_y, prev_y + prev_h,
+                prev_x, prev_x + prev_w,
+            );
+        } else {
+            self.objects[object_index].initial_render = false;
+        }
 
-                    // try to clear this pixel from what was
-                    // underneath it first
-                    if should_try_clear_below && self.clear_pixels_from_below_object(
-                        red_index, j, i, &skip_below
-                    ) { continue; }
+        let [
+            now_x, now_y,
+            now_w, now_h,
+        ] = {
+            let object = &self.objects[object_index];
+            let now = object.current_bounds;
+            [now.x, now.y, now.w, now.h]
+        };
 
-                    // if that fails, use the clear buffer
-                    // let clearpix = RgbaPixel {
-                    //     r: self.clear_buffer[red_index],
-                    //     g: self.clear_buffer[red_index + 1],
-                    //     b: self.clear_buffer[red_index + 2],
-                    //     a: self.clear_buffer[red_index + 3],
-                    // };
-                    // println!("Undoing ({}, {}) via clearbuffer: {:?}", j, i, clearpix);
-                    self.pixel_buffer[red_index] = self.clear_buffer[red_index];
-                    self.pixel_buffer[red_index + 1] = self.clear_buffer[red_index + 1];
-                    self.pixel_buffer[red_index + 2] = self.clear_buffer[red_index + 2];
-                    self.pixel_buffer[red_index + 3] = self.clear_buffer[red_index + 3];
-                }
+        if let Some(color) = object_color {
+            // can skip rendering if the alpha is 0, no point in iterating
+            if color.a == 0 {
+                let mut object = &mut self.objects[object_index];
+                object.previous_bounds = object.current_bounds;
+                return;
             }
+            self.draw_pixel(color, skip_above,
+                now_y, now_y + now_h,
+                now_x, now_x + now_w
+            );
+        } else {
+            self.draw_exact(
+                texture_index, skip_above,
+                now_y, now_y + now_h,
+                now_x, now_x + now_w
+            );
         }
 
         let mut object = &mut self.objects[object_index];
-        let now = object.current_bounds;
-        // println!("Going to draw everything within: {:#?}", now);
-        let now_x = now.x;
-        let now_y = now.y;
-        let now_w = now.w;
-        let now_h = now.h;
-        // println!("Except: {:#?}", skip_regions);
-        let (item_pixels, item_width) = match object.texture_color {
-            Some(rgba_pixel) => {
-                // can skip rendering if the alpha is 0, no point in iterating
-                if rgba_pixel.a == 0 {
-                    object.previous_bounds = Some(object.current_bounds);
-                    return;
-                }
+        object.previous_bounds = object.current_bounds;
+    }
 
-                for i in now_y..(now_y + now_h) {
-                    for j in now_x..(now_x + now_w) {
-                        if should_skip_point(&skip_above.above_my_current, j, i) {
-                            // println!("Skipping: ({}, {})", j, i);
-                            continue;
-                        }
-                        self.portioner.take_pixel(j, i);
-                        let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                        let red_index = red_index as usize;
-                        // TODO: pixel format???
-                        // println!("Overwriting ({}, {}) with {:?}", j, i, rgba_pixel);
-                        self.pixel_buffer[red_index] = rgba_pixel.r;
-                        self.pixel_buffer[red_index + 1] = rgba_pixel.g;
-                        self.pixel_buffer[red_index + 2] = rgba_pixel.b;
-                        self.pixel_buffer[red_index + 3] = rgba_pixel.a;
-                    }
-                }
-                object.previous_bounds = Some(object.current_bounds);
-                return;
-            }
-            None => {
-                (&self.textures[object.texture_index].data, self.textures[object.texture_index].width)
-            }
-        };
-
-        // if we got here then that means item.get_current_pixels
-        // returns an actual vec of pixels, so iterate over those
-        // and keep track of the pixel index...
-        if let ObjectRenderMode::RenderAsMuchAsPossible = object.render_mode {
-            let item_pixels_max = item_pixels.len();
-            let mut item_pixel_index = 0;
-            'outer: for i in now_y..(now_y + now_h) {
-                for j in now_x..(now_x + now_w) {
-                    // if the alpha value is 0, skip this pixel
-                    if item_pixels[item_pixel_index + 3] == 0 {
-                        continue;
-                    }
-                    if should_skip_point(&skip_above.above_my_current, j, i) {
-                        // println!("Skipping: ({}, {})", j, i);
-                        continue;
-                    }
-                    self.portioner.take_pixel(j, i);
-                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
-                    let red_index = red_index as usize;
-                    // TODO: pixel format???
-                    self.pixel_buffer[red_index] = item_pixels[item_pixel_index];
-                    self.pixel_buffer[red_index + 1] = item_pixels[item_pixel_index + 1];
-                    self.pixel_buffer[red_index + 2] = item_pixels[item_pixel_index + 2];
-                    self.pixel_buffer[red_index + 3] = item_pixels[item_pixel_index + 3];
-                    item_pixel_index += indices_per_pixel;
-                    if item_pixel_index >= item_pixels_max {
-                        break 'outer;
-                    }
-                }
-            }
-        } else if let ObjectRenderMode::RenderToFit = object.render_mode {
-            let item_pixels_len = item_pixels.len();
-            let item_height = (item_pixels_len / indices_per_pixel) / item_width;
-            // TODO: handle shrink image?
-            if now_w < item_width as u32 || now_h < item_height as u32 {
-                panic!("texture shrinking not implemented yet");
-            }
-            let width_stretch_factor = now_w / item_width as u32;
-            let height_stretch_factor = now_h / item_height as u32;
-            let mut pixel_y = 0;
-            for i in now_y..(now_y + now_h) {
-                let i_diff = i - now_y;
-                if i_diff != 0 && i_diff % height_stretch_factor == 0 {
-                    pixel_y += 1;
-                }
-                if pixel_y >= item_height {
-                    pixel_y = item_height - 1;
-                }
-
-                let mut pixel_x = 0;
-                for j in now_x..(now_x + now_w) {
-                    let j_diff = j - now_x;
-                    if j_diff != 0 && j_diff % width_stretch_factor == 0 {
-                        pixel_x += 1;
-                    }
-                    if pixel_x >= item_width {
-                        pixel_x = item_width - 1;
-                    }
-
-                    let pixel_red_index = get_red_index!(pixel_x, pixel_y, item_width, indices_per_pixel) as usize;
-                    // if alpha is 0, no point in checking above points, just skip
-                    if item_pixels[pixel_red_index + 3] == 0 {
-                        continue;
-                    }
-
-                    if should_skip_point(&skip_above.above_my_current, j, i) {
-                        // println!("Skipping: ({}, {})", j, i);
-                        continue;
-                    }
-
-                    self.portioner.take_pixel(j, i);
-                    let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel) as usize;
-
-                    self.pixel_buffer[red_index] = item_pixels[pixel_red_index];
-                    self.pixel_buffer[red_index + 1] = item_pixels[pixel_red_index + 1];
-                    self.pixel_buffer[red_index + 2] = item_pixels[pixel_red_index + 2];
-                    self.pixel_buffer[red_index + 3] = item_pixels[pixel_red_index + 3];
-                }
-            }
-        }
-
-        object.previous_bounds = Some(object.current_bounds);
+    pub fn draw_grid_outline(&mut self) {
+        draw_grid_outline(&self.portioner, &mut self.pixel_buffer, self.indices_per_pixel);
     }
 }
 
@@ -765,23 +753,8 @@ mod tests {
     const PIX3: RgbaPixel = RgbaPixel { r: 3, g: 3, b: 3, a: 3 };
     const PIX4: RgbaPixel = RgbaPixel { r: 4, g: 4, b: 4, a: 4 };
 
-    #[test]
-    fn managed_layering_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        assert_eq!(p.layers.len(), 1);
-        p.create_object_from_color(0,
-            Rect { x: 0, y: 0, w: 0, h: 0 },
-            PIXEL_BLACK,
-        );
-        assert_eq!(p.layers.len(), 1);
-        assert_eq!(p.objects.len(), 1);
-        assert_eq!(p.textures.len(), 0);
-        assert_eq!(p.layers[0].objects.len(), 1);
-    }
-
-    fn assert_pixels_in_map(p: &mut PortionRenderer, map: &[char], width: u32) {
+    fn assert_pixels_in_map(p: &mut PortionRenderer<u8>, map: &[char], width: u32) {
+        const IDC_PIXEL: RgbaPixel = RgbaPixel { r: 22, g: 103, b: 2, a: 54 };
         let mut x = 0;
         let mut expected_string = String::from("[");
         for pixel_color in map {
@@ -818,6 +791,7 @@ mod tests {
                 '2' => PIX2,
                 '3' => PIX3,
                 '4' => PIX4,
+                '?' => IDC_PIXEL,
                 c => panic!("Found undefined char in map: {}", c),
             };
             let c = match pixel_slice {
@@ -831,12 +805,13 @@ mod tests {
                 PIX4 => '4',
                 _ => '?',
             };
+            let c = if pixel_compare == IDC_PIXEL { '?' } else { c };
             actual_string.push(c);
             actual_string.push_str(", ");
             if should_newline {
                 actual_string.push_str("\n ");
             }
-            if pixel_compare != pixel_slice {
+            if pixel_compare != IDC_PIXEL && pixel_compare != pixel_slice {
                 // panic!("\n\nExpected {:?}\nFound {:?}\n at index ({}, {})\n\n", pixel_compare, pixel_slice, debug_x, debug_y);
                 should_panic = true;
             }
@@ -857,14 +832,60 @@ mod tests {
         out_vec
     }
 
+    fn get_test_renderer() -> PortionRenderer<u8> {
+        PortionRenderer::new_ex(
+            10, 10, 10, 10, PixelFormatEnum::RGBA8888
+        )
+    }
+
+    #[test]
+    fn managed_layering_works() {
+        let mut p = PortionRenderer::<u8>::new_ex(
+            10, 10, 10, 10, PixelFormatEnum::RGBA8888,
+        );
+        assert_eq!(p.layers.len(), 1);
+        p.create_object_from_color(0,
+            Rect { x: 0, y: 0, w: 0, h: 0 },
+            PIXEL_BLACK,
+        );
+        assert_eq!(p.layers.len(), 1);
+        assert_eq!(p.objects.len(), 1);
+        assert_eq!(p.textures.len(), 0);
+        assert_eq!(p.layers[0].objects.len(), 1);
+    }
+
+    #[test]
+    fn draw_arbitrary_bound_works() {
+        // test that you can render an arbitrary pixel vec
+        // in an area as given by the bounds
+        let mut p = get_test_renderer();
+        let mut pixels = vec![255; 9 * 9 * 4];
+        // red
+        pixels[0] = 255;
+        pixels[1] = 0;
+        pixels[2] = 0;
+        pixels[3] = 255;
+        // blue
+        pixels[4] = 0;
+        pixels[5] = 0;
+        pixels[6] = 255;
+        pixels[7] = 255;
+        p.draw(&pixels, Rect { x: 1, y: 1, w: 9, h: 9 });
+        let assert_map = [
+            '?', '?', '?',
+            '?', 'r', 'b',
+            '?', '?', '?',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 3);
+    }
+
     #[test]
     fn simple_texture_move_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        let textured = p.create_object_from_texture_exact(
+        let mut p = get_test_renderer();
+        let t = p.create_object_from_texture(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             texture_from(&[PIX1, PIX2, PIX3, PIX4]),
+            2, 2,
         );
         p.draw_all_layers();
         let assert_map = [
@@ -873,7 +894,7 @@ mod tests {
         ];
         assert_pixels_in_map(&mut p, &assert_map, 4);
 
-        p.move_object_x_by(textured, 1);
+        p.move_object_x_by(t, 1);
         p.draw_all_layers();
         let assert_map = [
             'x', '1', '2', 'x',
@@ -884,9 +905,7 @@ mod tests {
 
     #[test]
     fn getting_pixel_from_object_at_position_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let textured = p.create_object_from_texture_exact(
             0, Rect { x: 2, y: 1, w: 2, h: 2 },
             texture_from(&[PIX1, PIX2, PIX3, PIX4]),
@@ -910,102 +929,8 @@ mod tests {
     }
 
     #[test]
-    fn getting_pixel_from_object_at_position_stretched_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        let textured = p.create_object_from_texture(
-            0, Rect { x: 2, y: 1, w: 4, h: 4 },
-            texture_from(&[PIX1, PIX2, PIX3, PIX4]),
-            2
-        );
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x', 'x', 'x',
-            'x', 'x', '1', '1', '2', '2',
-            'x', 'x', '1', '1', '2', '2',
-            'x', 'x', '3', '3', '4', '4',
-            'x', 'x', '3', '3', '4', '4',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 6);
-
-        let pixel = p.get_pixel_from_object_at(textured, 3, 2).unwrap();
-        assert_eq!(pixel, PIX1);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 2).unwrap();
-        assert_eq!(pixel, PIX2);
-        let pixel = p.get_pixel_from_object_at(textured, 3, 3).unwrap();
-        assert_eq!(pixel, PIX3);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 3).unwrap();
-        assert_eq!(pixel, PIX4);
-
-        // that works for an easy 1-2 scale, but what about a weird scale?
-        // test if can be stretched big weird ratio
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        // here we have a 3x2 image, stretched to a 4x4 bounds
-        // so vertically the stretch is even, but horizontally
-        // one of the columns will be wider than the others
-        let textured = p.create_object_from_texture(
-            0, Rect { x: 2, y: 1, w: 4, h: 4 },
-            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
-            3
-        );
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x', 'x', 'x',
-            'x', 'x', '1', '2', '3', '3',
-            'x', 'x', '1', '2', '3', '3',
-            'x', 'x', '4', 'b', 'g', 'g',
-            'x', 'x', '4', 'b', 'g', 'g',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 6);
-
-        println!("Here:");
-        let pixel = p.get_pixel_from_object_at(textured, 2, 1).unwrap();
-        assert_eq!(pixel, PIX1);
-        let pixel = p.get_pixel_from_object_at(textured, 3, 1).unwrap();
-        assert_eq!(pixel, PIX2);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 1).unwrap();
-        assert_eq!(pixel, PIX3);
-        let pixel = p.get_pixel_from_object_at(textured, 5, 1).unwrap();
-        assert_eq!(pixel, PIX3);
-
-        let pixel = p.get_pixel_from_object_at(textured, 2, 2).unwrap();
-        assert_eq!(pixel, PIX1);
-        let pixel = p.get_pixel_from_object_at(textured, 3, 2).unwrap();
-        assert_eq!(pixel, PIX2);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 2).unwrap();
-        assert_eq!(pixel, PIX3);
-        let pixel = p.get_pixel_from_object_at(textured, 5, 2).unwrap();
-        assert_eq!(pixel, PIX3);
-
-        let pixel = p.get_pixel_from_object_at(textured, 2, 3).unwrap();
-        assert_eq!(pixel, PIX4);
-        let pixel = p.get_pixel_from_object_at(textured, 3, 3).unwrap();
-        assert_eq!(pixel, PIXEL_BLUE);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 3).unwrap();
-        assert_eq!(pixel, PIXEL_GREEN);
-        let pixel = p.get_pixel_from_object_at(textured, 5, 3).unwrap();
-        assert_eq!(pixel, PIXEL_GREEN);
-
-        let pixel = p.get_pixel_from_object_at(textured, 2, 4).unwrap();
-        assert_eq!(pixel, PIX4);
-        let pixel = p.get_pixel_from_object_at(textured, 3, 4).unwrap();
-        assert_eq!(pixel, PIXEL_BLUE);
-        let pixel = p.get_pixel_from_object_at(textured, 4, 4).unwrap();
-        assert_eq!(pixel, PIXEL_GREEN);
-        let pixel = p.get_pixel_from_object_at(textured, 5, 4).unwrap();
-        assert_eq!(pixel, PIXEL_GREEN);
-    }
-
-    #[test]
     fn simple_overlap_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let _green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1041,9 +966,7 @@ mod tests {
 
     #[test]
     fn simple_underlap_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1079,9 +1002,7 @@ mod tests {
 
     #[test]
     fn simple_overlap_move_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1136,9 +1057,7 @@ mod tests {
 
     #[test]
     fn simple_underlap_move_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1185,9 +1104,7 @@ mod tests {
 
     #[test]
     fn simple_underlap_move_gets_proper_above_and_below_bounds() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1245,9 +1162,7 @@ mod tests {
 
     #[test]
     fn simple_underlap_move_simulatenous_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1292,9 +1207,7 @@ mod tests {
 
     #[test]
     fn simple_underlap_move_sequential_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
+        let mut p = get_test_renderer();
         let green = p.create_object_from_color(
             0, Rect { x: 0, y: 0, w: 2, h: 2 },
             PIXEL_GREEN
@@ -1340,48 +1253,20 @@ mod tests {
     }
 
     #[test]
-    fn render_mode_as_much_as_possible_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        // we purposefully dont give a 4th pixel
-        // to test if the rendering works
-        let textured = p.create_object_from_texture_exact(
-            0, Rect { x: 2, y: 1, w: 2, h: 2 },
-            texture_from(&[PIX1, PIX2, PIX3]),
-        );
-
-        // because its render as much as possible,
-        // the last pixel should not be rendered because the texture
-        // doesnt have enough pixels
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderAsMuchAsPossible);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x',
-            'x', 'x', '1', '2',
-            'x', 'x', '3', 'x',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 4);
-
-        // now if we instead have a texture that is bigger
+    fn default_render_mode_for_textures_works() {
+        let mut p = get_test_renderer();
+        // if we have a texture that is bigger
         // than the bounds of the object, then it should simply
         // ignore the pixels after it reaches the end of the bounds
-
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        let textured = p.create_object_from_texture(
+        let _ = p.create_object_from_texture(
             0, Rect { x: 2, y: 1, w: 2, h: 2 },
             texture_from(&[
                 PIX1, PIX2, PIX3,
                 PIX4, PIXEL_BLUE, PIXEL_BLUE,
                 PIXEL_BLUE, PIXEL_BLUE, PIXEL_BLUE,
             ]),
-            3,
+            3, 3,
         );
-        // because its render as much as possible,
-        // the pixels after the bounds should not exist
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderAsMuchAsPossible);
         p.draw_all_layers();
         let assert_map = [
             'x', 'x', 'x', 'x', 'x',
@@ -1390,75 +1275,5 @@ mod tests {
             'x', 'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
-    }
-
-    #[test]
-    fn render_mode_fit_works() {
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-
-        // first test if it can be stretched big
-        let textured = p.create_object_from_texture(
-            0, Rect { x: 2, y: 1, w: 4, h: 4 },
-            texture_from(&[PIX1, PIX2, PIX3, PIX4]),
-            2
-        );
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x', 'x', 'x',
-            'x', 'x', '1', '1', '2', '2',
-            'x', 'x', '1', '1', '2', '2',
-            'x', 'x', '3', '3', '4', '4',
-            'x', 'x', '3', '3', '4', '4',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 6);
-
-        // test if can be stretched big weird ratio
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        // here we have a 3x2 image, stretched to a 4x4 bounds
-        // so vertically the stretch is even, but horizontally
-        // one of the columns will be wider than the others
-        let textured = p.create_object_from_texture(
-            0, Rect { x: 2, y: 1, w: 4, h: 4 },
-            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
-            3
-        );
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x', 'x', 'x',
-            'x', 'x', '1', '2', '3', '3',
-            'x', 'x', '1', '2', '3', '3',
-            'x', 'x', '4', 'b', 'g', 'g',
-            'x', 'x', '4', 'b', 'g', 'g',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 6);
-
-        // test if can be stretched big weird ratio vertically
-        let mut p = PortionRenderer::new(
-            10, 10, 10, 10
-        );
-        // here we have a 2x3 image, stretched to a 4x4 bounds
-        // so horizontally the stretch is even, but vertically
-        // one of the rows will be taller than the others
-        let textured = p.create_object_from_texture(
-            0, Rect { x: 2, y: 1, w: 4, h: 4 },
-            texture_from(&[PIX1, PIX2, PIX3, PIX4, PIXEL_BLUE, PIXEL_GREEN]),
-            2
-        );
-        p.set_object_render_mode(textured, ObjectRenderMode::RenderToFit);
-        p.draw_all_layers();
-        let assert_map = [
-            'x', 'x', 'x', 'x', 'x', 'x',
-            'x', 'x', '1', '1', '2', '2',
-            'x', 'x', '3', '3', '4', '4',
-            'x', 'x', 'b', 'b', 'g', 'g',
-            'x', 'x', 'b', 'b', 'g', 'g',
-        ];
-        assert_pixels_in_map(&mut p, &assert_map, 6);
     }
 }

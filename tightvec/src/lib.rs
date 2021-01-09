@@ -25,6 +25,13 @@ impl<T> IndexMut<usize> for TightVec<T> {
 }
 
 impl<T> TightVec<T> {
+    pub fn new() -> TightVec<T> {
+        TightVec {
+            buf: vec![],
+            next: VecDeque::new(),
+        }
+    }
+
     pub fn insert(&mut self, value: T) -> usize {
         match self.next.pop_front() {
             Some(index) => {

@@ -6,6 +6,7 @@ edition = "2018"
 
 [dependencies]
 grid = { path = "../grid" }
+tightvec = { path = "../tightvec" }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -13,4 +14,8 @@ rand = "*"
 
 [[bench]]
 name = "bench1"
+harness = false
+
+[[bench]]
+name = "bench_draw"
 harness = false
