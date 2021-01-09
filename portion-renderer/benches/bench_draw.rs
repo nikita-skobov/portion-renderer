@@ -2,6 +2,7 @@ use criterion::BenchmarkId;
 use criterion::Criterion;
 use criterion::{criterion_group, criterion_main};
 
+use std::time::Duration;
 use rand::prelude::*;
 
 use portion_renderer;
@@ -33,6 +34,7 @@ fn from_elem(c: &mut Criterion) {
 
 
     let mut group = c.benchmark_group("draw");
+    group.measurement_time(Duration::from_secs(8));
     group.bench_with_input(BenchmarkId::new("point_in_normal_rect", "data_vec"), &data, |b, s| {
         let (bounds, pixels) = s;
         let mut p = PortionRenderer::new_ex(1000, 1000, 10, 10, PixelFormatEnum::RGBA8888);
