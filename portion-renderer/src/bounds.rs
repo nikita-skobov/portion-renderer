@@ -27,6 +27,7 @@ pub struct Vector {
 /// point A and C. ie, you should not be
 /// able to draw a direct line between A and C, but
 /// rather you have to cross B first.
+#[derive(Copy, Clone)]
 pub struct TiltedRect {
     pub ax: f32,
     pub ay: f32,
@@ -98,8 +99,8 @@ impl TiltedRect {
     pub fn from_bounds_and_matrix(bounds: Rect, matrix: Matrix) -> TiltedRect {
         let x = bounds.x as f32;
         let y = bounds.y as f32;
-        let max_x = x + bounds.w as f32 - 1.0;
-        let max_y = y + bounds.h as f32 - 1.0;
+        let max_x = x + bounds.w as f32;
+        let max_y = y + bounds.h as f32;
         let mut a = Point { x, y };
         let mut b = Point { x: max_x, y };
         let mut c = Point { x: max_x, y: max_y };

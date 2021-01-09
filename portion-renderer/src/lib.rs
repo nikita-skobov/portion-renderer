@@ -37,7 +37,11 @@ pub const RGBA8888_IPP: u32 = 4;
 pub const BGRA8888_IPP: u32 = 4;
 pub const RGBA32_IPP: u32 = 1;
 
-static EMPTY_OBJECT: Object = Object { previous_bounds: EMPTY_RECT, current_bounds: EMPTY_RECT, layer_index: 0, texture_index: 0, initial_render: false, texture_color: None };
+static EMPTY_OBJECT: Object = Object {
+    previous_bounds: EMPTY_RECT, current_bounds: EMPTY_RECT,
+    layer_index: 0, texture_index: 0, initial_render: false,
+    texture_color: None, transform: None,
+};
 
 pub struct PortionRenderer<T> {
     pixel_buffer: Vec<T>,
@@ -87,10 +91,17 @@ pub struct Texture<T> {
     pub height: u32,
 }
 
+#[derive(Copy, Clone)]
+pub struct Transform {
+    pub matrix: Matrix,
+    pub bounds: TiltedRect,
+}
+
 #[derive(Clone)]
 pub struct Object {
     pub texture_color: Option<RgbaPixel>,
     pub texture_index: usize,
+    pub transform: Option<Transform>,
     pub layer_index: usize,
     pub current_bounds: Rect,
     pub previous_bounds: Rect,
@@ -138,6 +149,15 @@ pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
     }
 
     out_vec
+}
+
+impl GetRectangularBounds for Object {
+    fn get_bounds(&self) -> Rect {
+        match self.transform {
+            Some(transform) => transform.bounds.get_bounds(),
+            None => self.current_bounds,
+        }
+    }
 }
 
 impl SetPixel<u8> for &mut [u8] {
@@ -320,6 +340,7 @@ impl<T> PortionRenderer<T> {
         let layer_index = self.get_or_make_layer(layer_index);
         let new_object = Object {
             texture_color: color,
+            transform: None,
             layer_index,
             texture_index,
             current_bounds: bounds,
@@ -421,6 +442,22 @@ impl<T> PortionRenderer<T> {
         }
 
         below_bounds
+    }
+
+    pub fn set_object_transform(&mut self, object_index: usize, transform_matrix: Matrix) {
+        let current_bounds = self.objects[object_index].current_bounds;
+        // println!("Object current bounds: {:?}", current_bounds);
+        // we need to invert this matrix just to get the bounds
+        // and then we will use the original matrix for actual transformations
+        let bound_getting_matrix = transform_matrix.invert().unwrap();
+        let tilted_rect = TiltedRect::from_bounds_and_matrix(current_bounds, bound_getting_matrix);
+        // println!("Tilted rect bounds: {:?} ", tilted_rect.get_bounds());
+        let t = Transform {
+            matrix: transform_matrix,
+            bounds: tilted_rect,  
+        };
+        self.objects[object_index].transform = Some(t);
+        self.set_layer_update(object_index);
     }
 
     pub fn set_layer_update(&mut self, object_index: usize) {
@@ -561,9 +598,19 @@ impl PortionRenderer<u8> {
     pub fn draw_pixel(
         &mut self, pixel: RgbaPixel,
         skip_above: AboveRegions,
+        transform: Option<Matrix>,
         min_y: u32, max_y: u32,
         min_x: u32, max_x: u32,
     ) {
+        if let Some(_matrix) = transform {
+            // TODO: implement this
+            // return self.draw_pixel_rotated(pixel,
+            //     &skip_above, matrix,
+            //     min_y, max_y,
+            //     min_x, max_x
+            // );
+        }
+
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
@@ -581,12 +628,64 @@ impl PortionRenderer<u8> {
         }
     }
 
+    pub fn draw_exact_rotated(
+        &mut self, texture_index: usize,
+        skip_above: &AboveRegions,
+        transform: Matrix,
+        min_y: u32, max_y: u32,
+        min_x: u32, max_x: u32,
+        shift_x: f32, shift_y: f32,
+    ) {
+        let texture = &self.textures[texture_index];
+        let texture_data = &texture.data;
+        let texture_width = texture.width;
+        let texture_height = texture.height;
+        for i in min_y..max_y {
+            for j in min_x..max_x {
+                if should_skip_point(&skip_above.above_my_current, j, i) {
+                    continue;
+                }
+                let (px, py) = transform.mul_point(j as f32, i as f32);
+                let px = px - shift_x;
+                let py = py - shift_y;
+                let pix = interpolate_nearest(
+                    texture_data, texture_width, texture_height,
+                    px, py, PIXEL_BLANK
+                );
+                // println!("({}, {}), [{}, {}] => GOT PIXEL: {:?}", j, i, px, py, pix);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: pixel format?
+                self.pixel_buffer[red_index] = pix.r;
+                self.pixel_buffer[red_index + 1] = pix.g;
+                self.pixel_buffer[red_index + 2] = pix.b;
+                self.pixel_buffer[red_index + 3] = pix.a;
+            }
+        }
+    }
+
     pub fn draw_exact(
         &mut self, texture_index: usize,
         skip_above: AboveRegions,
+        transform: Option<Transform>,
         min_y: u32, max_y: u32,
         min_x: u32, max_x: u32,
     ) {
+        if let Some(transform) = transform {
+            let transform_bounds = transform.bounds.get_bounds();
+            let tmin_x = transform_bounds.x;
+            let tmax_x = tmin_x + transform_bounds.w;
+            let tmin_y = transform_bounds.y;
+            let tmax_y = tmin_y + transform_bounds.h;
+            return self.draw_exact_rotated(texture_index,
+                &skip_above, transform.matrix,
+                tmin_y, tmax_y,
+                tmin_x, tmax_x,
+                min_x as f32,
+                min_y as f32,
+            );
+        }
+
         let item_pixels = &self.textures[texture_index].data;
         let indices_per_pixel = self.indices_per_pixel as usize;
         let mut item_pixel_index = 0;
@@ -679,23 +778,25 @@ impl PortionRenderer<u8> {
             // can skip rendering if the alpha is 0, no point in iterating
             if color.a == 0 {
                 let mut object = &mut self.objects[object_index];
-                object.previous_bounds = object.current_bounds;
+                object.previous_bounds = object.get_bounds();
                 return;
             }
             self.draw_pixel(color, skip_above,
+                None,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w
             );
         } else {
             self.draw_exact(
                 texture_index, skip_above,
+                self.objects[object_index].transform,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w
             );
         }
 
         let mut object = &mut self.objects[object_index];
-        object.previous_bounds = object.current_bounds;
+        object.previous_bounds = object.get_bounds();
     }
 
     pub fn draw_grid_outline(&mut self) {
@@ -1275,5 +1376,49 @@ mod tests {
             'x', 'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
+    }
+
+    #[test]
+    fn can_draw_arbitrary_rotations() {
+        let mut p = get_test_renderer();
+        let t = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 2, h: 2 },
+            texture_from(&[
+                PIX1, PIX2,
+                PIX3, PIX4,
+            ]),
+            2, 2,
+        );
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', 'x',
+            'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        let simple_rotate = Matrix::TranslateXY(2.0, 1.0) * Matrix::rotate_degrees(90f32) * Matrix::TranslateXY(-2.0, -1.0);
+        p.set_object_transform(t, simple_rotate);
+
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', '2', '4', 'x',
+            'x', 'x', '1', '3', 'x',
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        // TODO:
+        // p.move_object_x_by(t, -1);
+        // p.draw_all_layers();
+        // let assert_map = [
+        //     'x', '2', '4', 'x', 'x',
+        //     'x', '1', '3', 'x', 'x',
+        //     'x', 'x', 'x', 'x', 'x',
+        //     'x', 'x', 'x', 'x', 'x',
+        // ];
+        // assert_pixels_in_map(&mut p, &assert_map, 5);
     }
 }

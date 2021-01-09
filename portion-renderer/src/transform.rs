@@ -102,6 +102,35 @@ fn blend_bilinear(
     };
 }
 
+// TODO: dont assume this texture is same size/location
+// as the surface its going to be drawn on. ie need a way to pass in
+// a computed offset, rather than giving a texture the exact size of the destination
+pub fn interpolate_nearest(
+    texture: &[u8],
+    texture_width: u32,
+    texture_height: u32,
+    x: f32,
+    y: f32,
+    default: RgbaPixel
+) -> RgbaPixel {
+    let rx = x.round();
+    let ry = y.round();
+
+    if rx < 0f32 || rx >= texture_width as f32 || ry < 0f32 || ry >= texture_height as f32 {
+        default
+    } else {
+        // TODO: pixel format!
+        let red_index = get_red_index!(rx as u32, ry as u32, texture_width, 4) as usize;
+        // println!("red index: {}", red_index);
+        RgbaPixel {
+            r: texture[red_index],
+            g: texture[red_index + 1],
+            b: texture[red_index + 2],
+            a: texture[red_index + 2],
+        }
+    }
+}
+
 
 fn interpolate_bilinear(
     texture: &[u8],
