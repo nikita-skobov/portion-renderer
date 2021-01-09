@@ -2,8 +2,8 @@ use std::ops::Mul;
 
 /// This module was a portion of
 /// https://github.com/image-rs/imageproc/blob/master/src/geometric_transformations.rs
-/// that was copy pasted here, and slightly modified
-/// because I only need this part of it
+/// that was copy pasted here, and substantially modified
+/// to only keep the parts I want
 /// Here is their license:
 
 // The MIT License (MIT)
@@ -324,7 +324,7 @@ macro_rules! match_matrix {
     }
 }
 
-
+#[derive(Debug, Copy, Clone)]
 pub enum Matrix {
     Unit,
     Scale(f32, f32),
