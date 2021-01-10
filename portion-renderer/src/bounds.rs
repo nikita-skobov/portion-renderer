@@ -17,7 +17,7 @@ pub struct Point {
     pub y: f32,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 pub struct Vector {
     pub x: f32,
     pub y: f32,
@@ -27,7 +27,7 @@ pub struct Vector {
 /// point A and C. ie, you should not be
 /// able to draw a direct line between A and C, but
 /// rather you have to cross B first.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug)]
 pub struct TiltedRect {
     pub ax: f32,
     pub ay: f32,

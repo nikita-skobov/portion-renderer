@@ -95,6 +95,9 @@ pub struct Texture<T> {
 pub struct Transform {
     pub matrix: Matrix,
     pub bounds: TiltedRect,
+    pub shift_x: f32,
+    pub shift_y: f32,
+    pub rotation: f32,
 }
 
 #[derive(Clone)]
@@ -444,20 +447,39 @@ impl<T> PortionRenderer<T> {
         below_bounds
     }
 
-    pub fn set_object_transform(&mut self, object_index: usize, transform_matrix: Matrix) {
+    pub fn set_object_rotation(&mut self, object_index: usize, degrees: f32) {
+        if degrees == 0f32 {
+            if self.objects[object_index].transform.is_some() {
+                self.objects[object_index].transform = None;
+                self.set_layer_update(object_index);
+            }
+            return;
+        }
+
         let current_bounds = self.objects[object_index].current_bounds;
-        // println!("Object current bounds: {:?}", current_bounds);
-        // we need to invert this matrix just to get the bounds
-        // and then we will use the original matrix for actual transformations
+        let x = current_bounds.x as f32;
+        let y = current_bounds.y as f32;
+        let transform_matrix = Matrix::TranslateXY(x, y) * Matrix::rotate_degrees(degrees) * Matrix::TranslateXY(-x, -y);
         let bound_getting_matrix = transform_matrix.invert().unwrap();
         let tilted_rect = TiltedRect::from_bounds_and_matrix(current_bounds, bound_getting_matrix);
-        // println!("Tilted rect bounds: {:?} ", tilted_rect.get_bounds());
         let t = Transform {
             matrix: transform_matrix,
-            bounds: tilted_rect,  
+            bounds: tilted_rect,
+            shift_x: x,
+            shift_y: y,
+            rotation: degrees,
         };
         self.objects[object_index].transform = Some(t);
         self.set_layer_update(object_index);
+    }
+
+    pub fn update_object_transform(&mut self, object_index: usize) {
+        let rotation = if let Some(transform) = &mut self.objects[object_index].transform {
+            transform.rotation
+        } else {
+            return;
+        };
+        self.set_object_rotation(object_index, rotation);
     }
 
     pub fn set_layer_update(&mut self, object_index: usize) {
@@ -477,6 +499,7 @@ impl<T> PortionRenderer<T> {
             self.objects[object_index].current_bounds.x += by as u32;
             self.set_layer_update(object_index);
         }
+        self.update_object_transform(object_index);
     }
 
     pub fn move_object_y_by(&mut self, object_index: usize, by: i32) {
@@ -491,6 +514,7 @@ impl<T> PortionRenderer<T> {
             self.objects[object_index].current_bounds.y += by as u32;
             self.set_layer_update(object_index);
         }
+        self.update_object_transform(object_index);
     }
 }
 
@@ -681,8 +705,8 @@ impl PortionRenderer<u8> {
                 &skip_above, transform.matrix,
                 tmin_y, tmax_y,
                 tmin_x, tmax_x,
-                min_x as f32,
-                min_y as f32,
+                transform.shift_x,
+                transform.shift_y,
             );
         }
 
@@ -1398,8 +1422,7 @@ mod tests {
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
 
-        let simple_rotate = Matrix::TranslateXY(2.0, 1.0) * Matrix::rotate_degrees(90f32) * Matrix::TranslateXY(-2.0, -1.0);
-        p.set_object_transform(t, simple_rotate);
+        p.set_object_rotation(t, 90f32);
 
         p.draw_all_layers();
         let assert_map = [
@@ -1410,15 +1433,26 @@ mod tests {
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
 
-        // TODO:
-        // p.move_object_x_by(t, -1);
-        // p.draw_all_layers();
-        // let assert_map = [
-        //     'x', '2', '4', 'x', 'x',
-        //     'x', '1', '3', 'x', 'x',
-        //     'x', 'x', 'x', 'x', 'x',
-        //     'x', 'x', 'x', 'x', 'x',
-        // ];
-        // assert_pixels_in_map(&mut p, &assert_map, 5);
+        p.move_object_x_by(t, -1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', '2', '4', 'x', 'x',
+            'x', '1', '3', 'x', 'x',
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        // we undo the rotation and move back 1
+        p.set_object_rotation(t, 0.0);
+        p.move_object_x_by(t, 1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', 'x',
+            'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
     }
 }
