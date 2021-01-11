@@ -102,9 +102,6 @@ fn blend_bilinear(
     };
 }
 
-// TODO: dont assume this texture is same size/location
-// as the surface its going to be drawn on. ie need a way to pass in
-// a computed offset, rather than giving a texture the exact size of the destination
 pub fn interpolate_nearest(
     texture: &[u8],
     texture_width: u32,
@@ -131,6 +128,25 @@ pub fn interpolate_nearest(
     }
 }
 
+/// like 'interpolate_nearest' but used on a solid pixel value
+/// instead of a texture. basically just bound checking
+pub fn interpolate_nearest_pixel(
+    pixel: RgbaPixel,
+    width: u32,
+    height: u32,
+    x: f32,
+    y: f32,
+    default: RgbaPixel,
+) -> RgbaPixel {
+    let rx = x.round();
+    let ry = y.round();
+
+    if rx < 0f32 || rx >= width as f32 || ry < 0f32 || ry >= height as f32 {
+        default
+    } else {
+        pixel
+    }
+}
 
 fn interpolate_bilinear(
     texture: &[u8],

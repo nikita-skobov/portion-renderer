@@ -612,17 +612,26 @@ impl PortionRenderer<u8> {
     pub fn draw_pixel(
         &mut self, pixel: RgbaPixel,
         skip_above: AboveRegions,
-        transform: Option<Matrix>,
+        transform: Option<Transform>,
         min_y: u32, max_y: u32,
         min_x: u32, max_x: u32,
+        width: u32,
+        height: u32,
     ) {
-        if let Some(_matrix) = transform {
-            // TODO: implement this
-            // return self.draw_pixel_rotated(pixel,
-            //     &skip_above, matrix,
-            //     min_y, max_y,
-            //     min_x, max_x
-            // );
+        if let Some(transform) = transform {
+            let transform_bounds = transform.bounds.get_bounds();
+            let tmin_x = transform_bounds.x;
+            let tmax_x = tmin_x + transform_bounds.w;
+            let tmin_y = transform_bounds.y;
+            let tmax_y = tmin_y + transform_bounds.h;
+            return self.draw_pixel_rotated(pixel,
+                &skip_above, transform.matrix,
+                tmin_y, tmax_y,
+                tmin_x, tmax_x,
+                min_x as f32,
+                min_y as f32,
+                width, height
+            );
         }
 
         for i in min_y..max_y {
@@ -638,6 +647,39 @@ impl PortionRenderer<u8> {
                 self.pixel_buffer[red_index + 1] = pixel.g;
                 self.pixel_buffer[red_index + 2] = pixel.b;
                 self.pixel_buffer[red_index + 3] = pixel.a;
+            }
+        }
+    }
+
+    pub fn draw_pixel_rotated(
+        &mut self, pixel: RgbaPixel,
+        skip_above: &AboveRegions,
+        transform: Matrix,
+        min_y: u32, max_y: u32,
+        min_x: u32, max_x: u32,
+        shift_x: f32, shift_y: f32,
+        width: u32, height: u32,
+    ) {
+        for i in min_y..max_y {
+            for j in min_x..max_x {
+                if should_skip_point(&skip_above.above_my_current, j, i) {
+                    continue;
+                }
+                let j_shift = j as f32 - shift_x;
+                let i_shift = i as f32 - shift_y;
+                let (px, py) = transform.mul_point(j_shift, i_shift);
+                let pix = interpolate_nearest_pixel(
+                    pixel, width, height,
+                    px, py, PIXEL_BLANK
+                );
+                // println!("({}, {}), [{}, {}] => GOT PIXEL: {:?}", j, i, px, py, pix);
+                let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
+                let red_index = red_index as usize;
+                // TODO: pixel format?
+                self.pixel_buffer[red_index] = pix.r;
+                self.pixel_buffer[red_index + 1] = pix.g;
+                self.pixel_buffer[red_index + 2] = pix.b;
+                self.pixel_buffer[red_index + 3] = pix.a;
             }
         }
     }
@@ -796,9 +838,10 @@ impl PortionRenderer<u8> {
                 return;
             }
             self.draw_pixel(color, skip_above,
-                None,
+                self.objects[object_index].transform,
                 now_y, now_y + now_h,
-                now_x, now_x + now_w
+                now_x, now_x + now_w,
+                now_w, now_h,
             );
         } else {
             self.draw_exact(
@@ -1497,6 +1540,55 @@ mod tests {
             'x', 'x', 'x', 'x', 'x',
             'x', 'x', '1', '2', 'x',
             'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+    }
+
+    #[test]
+    fn can_draw_arbitrary_rotations_for_solid_colors() {
+        let mut p = get_test_renderer();
+        let red = p.create_object_from_color(
+            1, Rect { x: 2, y: 1, w: 2, h: 2 },
+            PIXEL_RED
+        );
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', 'r', 'r', 'x',
+            'x', 'x', 'r', 'r', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        p.set_object_rotation(red, -45f32);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'r', 'x',
+            'x', 'x', 'r', '?', '?',
+            'x', 'x', 'x', '?', '?',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        p.move_object_x_by(red, -1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'r', 'x', 'x',
+            'x', 'r', '?', '?', 'x',
+            'x', 'x', '?', 'x', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        // we undo the rotation and move back 1
+        p.set_object_rotation(red, 0.0);
+        p.move_object_x_by(red, 1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', 'r', 'r', 'x',
+            'x', 'x', 'r', 'r', 'x',
             'x', 'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
