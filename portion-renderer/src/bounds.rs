@@ -99,15 +99,41 @@ impl TiltedRect {
     pub fn from_bounds_and_matrix(bounds: Rect, matrix: Matrix) -> TiltedRect {
         let x = bounds.x as f32;
         let y = bounds.y as f32;
-        let max_x = x + bounds.w as f32;
-        let max_y = y + bounds.h as f32;
-        let mut a = Point { x, y };
-        let mut b = Point { x: max_x, y };
+        let max_x = bounds.w as f32;
+        let max_y = bounds.h as f32;
+        let mut a = Point { x: 0.0, y: 0.0 };
+        let mut b = Point { x: max_x, y: 0.0 };
         let mut c = Point { x: max_x, y: max_y };
         a.transform_by(&matrix);
         b.transform_by(&matrix);
         c.transform_by(&matrix);
+        a.x += x;
+        a.y += y;
+        b.x += x;
+        b.y += y;
+        c.x += x;
+        c.y += y;
         TiltedRect::from_points(a, b, c)
+    }
+
+    pub fn shift_bounds_x(&mut self, by: i32) {
+        // TODO: do we need to move the a, b, c points?
+        // do we need to recalculate the vectors and dot products?
+        if by < 0 {
+            self.bounding_rect.x -= (0 - by) as u32;
+        } else {
+            self.bounding_rect.x += by as u32;
+        }
+    }
+
+    pub fn shift_bounds_y(&mut self, by: i32) {
+        // TODO: do we need to move the a, b, c points?
+        // do we need to recalculate the vectors and dot products?
+        if by < 0 {
+            self.bounding_rect.y -= (0 - by) as u32;
+        } else {
+            self.bounding_rect.y += by as u32;
+        }
     }
 
     pub fn prepare(&mut self) {
