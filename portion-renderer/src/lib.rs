@@ -399,17 +399,17 @@ impl<T> PortionRenderer<T> {
         // object is on, so we check the layers above it:
         let start_layer_check_at = layer_index + 1;
         let layers = self.layers.len();
-        let object_current_bounds = &self.objects[object_index].current_bounds;
+        let object_current_bounds = &self.objects[object_index].get_bounds();
         let object_previous_bounds = &self.objects[object_index].previous_bounds;
         let mut above_bounds = AboveRegions::default();
         for i in start_layer_check_at..layers {
             let layer = &self.layers[i];
             for layer_object_index in layer.objects.iter() {
                 let layer_object = &self.objects[*layer_object_index];
-                if let Some(intersection) = layer_object.current_bounds.intersection(*object_current_bounds) {
+                if let Some(intersection) = layer_object.get_bounds().intersection(*object_current_bounds) {
                     above_bounds.above_my_current.push(intersection);
                 }
-                if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous_bounds) {
+                if let Some(intersection) = layer_object.get_bounds().intersection(*object_previous_bounds) {
                     above_bounds.above_my_previous.push(intersection);
                 }
             }
@@ -432,7 +432,7 @@ impl<T> PortionRenderer<T> {
             let layer = &self.layers[i];
             for layer_object_index in layer.objects.iter() {
                 let layer_object = &self.objects[*layer_object_index];
-                if let Some(intersection) = layer_object.current_bounds.intersection(*object_previous_bounds) {
+                if let Some(intersection) = layer_object.get_bounds().intersection(*object_previous_bounds) {
                     below_bounds.below_my_previous.push(BelowRegion {
                         region: intersection,
                         region_belongs_to: *layer_object_index,
@@ -481,9 +481,6 @@ impl<T> PortionRenderer<T> {
         } else {
             self.objects[object_index].current_bounds.x += by as u32;
             self.set_layer_update(object_index);
-            if let Some(transform) = &mut self.objects[object_index].transform {
-                transform.bounds.bounding_rect.x += by as u32;
-            }
         }
         if let Some(transform) = &mut self.objects[object_index].transform {
             transform.bounds.shift_bounds_x(by);
@@ -683,6 +680,7 @@ impl PortionRenderer<u8> {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
                     continue;
                 }
+                self.portioner.take_pixel(j, i);
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
                 let (px, py) = transform.mul_point(j_shift, i_shift);
@@ -719,6 +717,7 @@ impl PortionRenderer<u8> {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
                     continue;
                 }
+                self.portioner.take_pixel(j, i);
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
                 let (px, py) = transform.mul_point(j_shift, i_shift);
@@ -1454,7 +1453,7 @@ mod tests {
     }
 
     #[test]
-    fn can_draw_arbitrary_rotations() {
+    fn can_draw_arbitrary_rotations1() {
         let mut p = get_test_renderer();
         let t = p.create_object_from_texture(
             0, Rect { x: 2, y: 1, w: 2, h: 2 },

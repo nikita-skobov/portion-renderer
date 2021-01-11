@@ -85,6 +85,30 @@ pub fn sorted_values(a: &Point, b: &Point, c: &Point) -> [[f32; 3]; 2] {
     return [ x, y ];
 }
 
+pub fn get_smallest_x(points: &[&Point; 4]) -> f32 {
+    let x_01 = if points[0].x < points[1].x { points[0].x } else { points[1].x };
+    let x_23 = if points[2].x < points[3].x { points[2].x } else { points[3].x };
+    if x_01 < x_23 { x_01 } else { x_23 }
+}
+
+pub fn get_largest_x(points: &[&Point; 4]) -> f32 {
+    let x_01 = if points[0].x > points[1].x { points[0].x } else { points[1].x };
+    let x_23 = if points[2].x > points[3].x { points[2].x } else { points[3].x };
+    if x_01 > x_23 { x_01 } else { x_23 }
+}
+
+pub fn get_smallest_y(points: &[&Point; 4]) -> f32 {
+    let y_01 = if points[0].y < points[1].y { points[0].y } else { points[1].y };
+    let y_23 = if points[2].y < points[3].y { points[2].y } else { points[3].y };
+    if y_01 < y_23 { y_01 } else { y_23 }
+}
+
+pub fn get_largest_y(points: &[&Point; 4]) -> f32 {
+    let y_01 = if points[0].y > points[1].y { points[0].y } else { points[1].y };
+    let y_23 = if points[2].y > points[3].y { points[2].y } else { points[3].y };
+    if y_01 > y_23 { y_01 } else { y_23 }
+}
+
 impl Point {
     pub fn transform_by(&mut self, matrix: &Matrix) {
         let (x, y) = matrix.mul_point(self.x, self.y);
@@ -99,21 +123,29 @@ impl TiltedRect {
     pub fn from_bounds_and_matrix(bounds: Rect, matrix: Matrix) -> TiltedRect {
         let x = bounds.x as f32;
         let y = bounds.y as f32;
-        let max_x = bounds.w as f32;
-        let max_y = bounds.h as f32;
+        let max_x = bounds.w as f32 - 1.0;
+        let max_y = bounds.h as f32 - 1.0;
         let mut a = Point { x: 0.0, y: 0.0 };
         let mut b = Point { x: max_x, y: 0.0 };
         let mut c = Point { x: max_x, y: max_y };
+        let mut d = Point { x: 0.0, y: max_y };
         a.transform_by(&matrix);
         b.transform_by(&matrix);
         c.transform_by(&matrix);
+        d.transform_by(&matrix);
         a.x += x;
         a.y += y;
         b.x += x;
         b.y += y;
         c.x += x;
         c.y += y;
-        TiltedRect::from_points(a, b, c)
+        d.x += x;
+        d.y += y;
+        // println!("A: {:?}", a);
+        // println!("B: {:?}", b);
+        // println!("C: {:?}", c);
+        // println!("D: {:?}", d);
+        TiltedRect::from_points4(a, b, c, d)
     }
 
     pub fn shift_bounds_x(&mut self, by: i32) {
@@ -143,12 +175,46 @@ impl TiltedRect {
         self.bc_dot = dot(&self.bc_vec, &self.bc_vec);
     }
 
+    pub fn from_points4(a: Point, b: Point, c: Point, d: Point) -> TiltedRect {
+        let point_array = [&a, &b, &c, &d];
+        let [x_min, x_max] = [
+            get_smallest_x(&point_array),
+            get_largest_x(&point_array),
+        ];
+        let [y_min, y_max] = [
+            get_smallest_y(&point_array),
+            get_largest_y(&point_array),
+        ];
+
+        let [
+            x_min, x_max,
+            y_min, y_max
+        ] = [
+            x_min as u32, x_max as u32,
+            y_min as u32, y_max as u32,
+        ];
+
+        let mut t = TiltedRect {
+            ax: a.x, ay: a.y,
+            bx: b.x, by: b.y,
+            cx: c.x, cy: c.y,
+            ab_vec: Vector { x: 0.0, y: 0.0 },
+            bc_vec: Vector { x: 0.0, y: 0.0 },
+            ab_dot: 0.0,
+            bc_dot: 0.0,
+            bounding_rect: Rect { x: x_min, y: y_min, w: x_max - x_min + 1, h: y_max - y_min + 1 },
+        };
+        t.prepare();
+        t
+    }
+
     pub fn from_points(a: Point, b: Point, c: Point) -> TiltedRect {
         let [sorted_x, sorted_y] = sorted_values(&a, &b, &c);
 
-        let x = sorted_x[0].ceil() as u32;
-        let y = sorted_y[0].ceil() as u32;
+        let x = sorted_x[0].ceil() as u32; // 30
+        let y = sorted_y[0].ceil() as u32; // 30
         let w = (sorted_x[2] - sorted_x[1] + sorted_x[1] - sorted_x[0]).ceil() as u32;
+        // 44.1 - 30 + 30 - 30 => 15
         let h = (sorted_y[2] - sorted_y[0] + sorted_y[1] - sorted_y[0]).ceil() as u32;
 
         let mut t = TiltedRect {
