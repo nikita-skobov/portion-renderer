@@ -9,6 +9,7 @@ use portion_renderer;
 use portion_renderer::bounds::Rect;
 use portion_renderer::PortionRenderer;
 use portion_renderer::PixelFormatEnum;
+use portion_renderer::PIXEL_RED;
 
 fn from_elem(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
@@ -41,6 +42,20 @@ fn from_elem(c: &mut Criterion) {
         b.iter(|| {
             p.draw(&pixels, *bounds);
         })
+    });
+    group.bench_with_input(BenchmarkId::new("draw_tilted_rect", "data_vec"), &"", |b, _| {
+        let mut p = PortionRenderer::<u8>::new_ex(
+            1000, 1000, 10, 10, PixelFormatEnum::RGBA8888
+        );
+        let red = p.create_object_from_color(
+            1, Rect { x: 0, y: 0, w: 500, h: 400 },
+            PIXEL_RED,
+        );
+        p.set_object_rotation(red, 45f32);
+        p.move_object_x_by(red, 200);
+        b.iter(|| {
+            p.force_draw_all_layers();
+        });
     });
 }
 

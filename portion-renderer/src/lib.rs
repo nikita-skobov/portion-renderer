@@ -609,6 +609,24 @@ impl PortionRenderer<u8> {
         }
     }
 
+    /// like draw_all_layers, but iterates over layer.objects instead of
+    /// layer.updates, so it will always draw every object on every layer
+    /// mostly used for testing/benchmarking
+    pub fn force_draw_all_layers(&mut self) {
+        let mut draw_object_indices = vec![];
+        for (layer_index, layer) in self.layers.iter_mut().enumerate() {
+            for object_index in layer.objects.iter() {
+                draw_object_indices.push((layer_index, *object_index));
+            }
+        }
+
+        for (layer_index, object_index) in draw_object_indices {
+            let above_regions = self.get_regions_above_object(object_index, layer_index);
+            let below_regions = self.get_regions_below_object(object_index, layer_index);
+            self.draw_object(object_index, above_regions, below_regions);
+        }
+    }
+
     pub fn draw_pixel(
         &mut self, pixel: RgbaPixel,
         skip_above: AboveRegions,
@@ -1592,5 +1610,31 @@ mod tests {
             'x', 'x', 'x', 'x', 'x',
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
+    }
+
+    // this is something we use for benchmarking, but I want to
+    // make sure that what is being benchmarked is accurate
+    // so this test case just checks that the rotation works,
+    // and then shifts the rectangle towards the middle.
+    #[test]
+    fn benchmark_example() {
+        let mut p = PortionRenderer::<u8>::new_ex(
+            1000, 1000, 10, 10, PixelFormatEnum::RGBA8888
+        );
+        let red = p.create_object_from_color(
+            1, Rect { x: 0, y: 0, w: 500, h: 400 },
+            PIXEL_RED
+        );
+        p.set_object_rotation(red, 45f32);
+        p.draw_all_layers();
+        let assert_map = [
+            'r', 'x', 'x', 'x', 'x',
+            'r', 'r', 'x', 'x', 'x',
+            'r', 'r', 'r', 'x', 'x',
+            'r', 'r', 'r', 'r', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+        p.move_object_x_by(red, 200);
+        p.draw_all_layers();
     }
 }
