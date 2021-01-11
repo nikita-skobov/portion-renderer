@@ -688,6 +688,9 @@ impl PortionRenderer<u8> {
                     pixel, width, height,
                     px, py, PIXEL_BLANK
                 );
+                if pix.a == 0 {
+                    continue;
+                }
                 // println!("({}, {}), [{}, {}] => GOT PIXEL: {:?}", j, i, px, py, pix);
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
@@ -725,6 +728,9 @@ impl PortionRenderer<u8> {
                     texture_data, texture_width, texture_height,
                     px, py, PIXEL_BLANK
                 );
+                if pix.a == 0 {
+                    continue;
+                }
                 // println!("({}, {}), [{}, {}] => GOT PIXEL: {:?}", j, i, px, py, pix);
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
