@@ -1,6 +1,6 @@
 # Grid
 
-I forked this repo from https://github.com/becheran/grid and modified it a bit.
+I forked this repo from https://github.com/becheran/grid and modified it a bit. the license in this directory is the license for just this grid project. whereas the rest of the code is agpl3.
 
 [![](http://meritbadge.herokuapp.com/grid)](https://crates.io/crates/grid)
 [![](https://badgen.net/crates/d/grid)](https://crates.io/crates/grid)
