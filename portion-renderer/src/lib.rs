@@ -1445,4 +1445,60 @@ mod tests {
         ];
         assert_pixels_in_map(&mut p, &assert_map, 5);
     }
+
+    #[test]
+    fn can_draw_arbitrary_rotations2() {
+        // same idea as the other test, but we
+        // want to check if it works for angles between 0-90
+        let mut p = get_test_renderer();
+        let t = p.create_object_from_texture(
+            0, Rect { x: 2, y: 1, w: 2, h: 2 },
+            texture_from(&[
+                PIX1, PIX2,
+                PIX3, PIX4,
+            ]),
+            2, 2,
+        );
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', 'x',
+            'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        p.set_object_rotation(t, -45f32);
+
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', '2', 'x',
+            'x', 'x', '1', '?', '?',
+            'x', 'x', 'x', '?', '?',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        p.move_object_x_by(t, -1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', '2', 'x', 'x',
+            'x', '1', '?', '?', 'x',
+            'x', 'x', '?', 'x', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+
+        // we undo the rotation and move back 1
+        p.set_object_rotation(t, 0.0);
+        p.move_object_x_by(t, 1);
+        p.draw_all_layers();
+        let assert_map = [
+            'x', 'x', 'x', 'x', 'x',
+            'x', 'x', '1', '2', 'x',
+            'x', 'x', '3', '4', 'x',
+            'x', 'x', 'x', 'x', 'x',
+        ];
+        assert_pixels_in_map(&mut p, &assert_map, 5);
+    }
 }
