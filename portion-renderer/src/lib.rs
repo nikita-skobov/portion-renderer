@@ -1,10 +1,12 @@
 use std::ops::Index;
+use projection::ComputePoint;
 
 pub mod portioner;
 pub mod projection;
 pub mod transform;
 pub mod bounds;
 pub use projection::Matrix;
+pub use projection::RotateMatrix;
 pub use transform::*;
 pub use portioner::*;
 pub use bounds::*;
@@ -152,6 +154,7 @@ pub fn pixel_vec_to_texture(pixel_vec: Vec<RgbaPixel>) -> Vec<u8> {
 }
 
 impl GetRectangularBounds for Object {
+    #[inline(always)]
     fn get_bounds(&self) -> Rect {
         match self.transform {
             Some(transform) => transform.bounds.get_bounds(),
@@ -675,6 +678,7 @@ impl PortionRenderer<u8> {
         shift_x: f32, shift_y: f32,
         width: u32, height: u32,
     ) {
+        let transform: RotateMatrix = (&transform).into();
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
@@ -683,7 +687,7 @@ impl PortionRenderer<u8> {
                 self.portioner.take_pixel(j, i);
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
-                let (px, py) = transform.mul_point(j_shift, i_shift);
+                let (px, py) = transform.compute_pt(j_shift, i_shift);
                 let pix = interpolate_nearest_pixel(
                     pixel, width, height,
                     px, py, PIXEL_BLANK
@@ -772,9 +776,11 @@ impl PortionRenderer<u8> {
             for j in min_x..max_x {
                 // if the alpha value is 0, skip this pixel
                 if item_pixels[item_pixel_index + 3] == 0 {
+                    item_pixel_index += indices_per_pixel;
                     continue;
                 }
                 if should_skip_point(&skip_above.above_my_current, j, i) {
+                    item_pixel_index += indices_per_pixel;
                     continue;
                 }
 
