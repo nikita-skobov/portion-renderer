@@ -715,6 +715,7 @@ impl PortionRenderer<u8> {
         min_x: u32, max_x: u32,
         shift_x: f32, shift_y: f32,
     ) {
+        let transform: RotateMatrix = (&transform).into();
         let texture = &self.textures[texture_index];
         let texture_data = &texture.data;
         let texture_width = texture.width;
@@ -727,7 +728,7 @@ impl PortionRenderer<u8> {
                 self.portioner.take_pixel(j, i);
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
-                let (px, py) = transform.mul_point(j_shift, i_shift);
+                let (px, py) = transform.compute_pt(j_shift, i_shift);
                 let pix = interpolate_nearest(
                     texture_data, texture_width, texture_height,
                     px, py, PIXEL_BLANK
