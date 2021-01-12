@@ -535,11 +535,39 @@ impl PortionRenderer<u8> {
         }
     }
 
+    pub fn get_pixel_from_object_at_rotated(
+        &self,
+        object_index: usize,
+        transform: &Transform,
+        x: u32, y: u32,
+    ) -> Option<RgbaPixel> {
+        let transform_matrix: RotateMatrix = (&transform.matrix).into();
+        let (shift_x, shift_y, texture_width, texture_height, texture_data) = {
+            let obj = &self.objects[object_index];
+            let texture_index = obj.texture_index;
+            let texture = &self.textures[texture_index];
+            let cb = &obj.current_bounds;
+            (cb.x as f32, cb.y as f32, texture.width, texture.height, &texture.data)
+        };
+        let x_shift = x as f32 - shift_x;
+        let y_shift = y as f32 - shift_y;
+        let (px, py) = transform_matrix.compute_pt(x_shift, y_shift);
+        let pix = interpolate_nearest(
+            &texture_data, texture_width, texture_height,
+            px, py, PIXEL_BLANK
+        );
+        Some(pix)
+    }
+
     pub fn get_pixel_from_object_at(
         &self,
         object_index: usize,
         x: u32, y: u32
     ) -> Option<RgbaPixel> {
+        if let Some(transform) = &self.objects[object_index].transform {
+            return self.get_pixel_from_object_at_rotated(object_index, transform, x, y);
+        }
+
         if let Some(color) = self.objects[object_index].texture_color {
             return Some(color);
         }
