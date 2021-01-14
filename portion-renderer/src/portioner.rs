@@ -62,13 +62,34 @@ impl Portioner {
         p
     }
 
+    #[inline(always)]
     pub fn take_pixel(&mut self, x: u32, y: u32) {
         let row_index = y / self.row_height;
         let col_index = x / self.col_width;
+        // TODO: can we use unsafe method for faster?
+        // unsafe {
+        //     let mut item = self.grid.get_unchecked_mut(row_index as usize, col_index as usize);
+        //     item.active = true;
+        // }
         if let Some(mut item) = self.grid.get_mut(row_index as usize, col_index as usize) {
             item.active = true;
-        } else {
-            println!("WARNING pixel ({}, {}) mapped to grid position ({}, {}) which doesnt exist!", x, y, col_index, row_index);
+        }
+    }
+
+    #[inline(always)]
+    pub fn take_region(&mut self, top_left: (u32, u32), bottom_right: (u32, u32)) {
+        let (tx, ty) = top_left;
+        let (bx, by) = bottom_right;
+        let start_row_index = (ty / self.row_height) as usize;
+        let start_col_index = (tx / self.col_width) as usize;
+        let stop_row_index = (by / self.row_height) as usize + 1;
+        let stop_col_index = (bx / self.col_width) as usize + 1;
+        for y in start_row_index..stop_row_index {
+            for x in start_col_index..stop_col_index {
+                if let Some(mut item) = self.grid.get_mut(y, x) {
+                    item.active = true;
+                }
+            }
         }
     }
 
