@@ -85,24 +85,28 @@ pub fn sorted_values(a: &Point, b: &Point, c: &Point) -> [[f32; 3]; 2] {
     return [ x, y ];
 }
 
+#[inline(always)]
 pub fn get_smallest_x(points: &[&Point; 4]) -> f32 {
     let x_01 = if points[0].x < points[1].x { points[0].x } else { points[1].x };
     let x_23 = if points[2].x < points[3].x { points[2].x } else { points[3].x };
     if x_01 < x_23 { x_01 } else { x_23 }
 }
 
+#[inline(always)]
 pub fn get_largest_x(points: &[&Point; 4]) -> f32 {
     let x_01 = if points[0].x > points[1].x { points[0].x } else { points[1].x };
     let x_23 = if points[2].x > points[3].x { points[2].x } else { points[3].x };
     if x_01 > x_23 { x_01 } else { x_23 }
 }
 
+#[inline(always)]
 pub fn get_smallest_y(points: &[&Point; 4]) -> f32 {
     let y_01 = if points[0].y < points[1].y { points[0].y } else { points[1].y };
     let y_23 = if points[2].y < points[3].y { points[2].y } else { points[3].y };
     if y_01 < y_23 { y_01 } else { y_23 }
 }
 
+#[inline(always)]
 pub fn get_largest_y(points: &[&Point; 4]) -> f32 {
     let y_01 = if points[0].y > points[1].y { points[0].y } else { points[1].y };
     let y_23 = if points[2].y > points[3].y { points[2].y } else { points[3].y };
@@ -110,6 +114,7 @@ pub fn get_largest_y(points: &[&Point; 4]) -> f32 {
 }
 
 impl Point {
+    #[inline(always)]
     pub fn transform_by(&mut self, matrix: &Matrix) {
         let (x, y) = matrix.mul_point(self.x, self.y);
         self.x = x;
@@ -148,6 +153,7 @@ impl TiltedRect {
         TiltedRect::from_points4(a, b, c, d)
     }
 
+    #[inline(always)]
     pub fn shift_bounds_x(&mut self, by: i32) {
         // TODO: do we need to move the a, b, c points?
         // do we need to recalculate the vectors and dot products?
@@ -158,6 +164,7 @@ impl TiltedRect {
         }
     }
 
+    #[inline(always)]
     pub fn shift_bounds_y(&mut self, by: i32) {
         // TODO: do we need to move the a, b, c points?
         // do we need to recalculate the vectors and dot products?
@@ -239,18 +246,21 @@ impl Intersects for TiltedRect {
     /// too lazy right now to figure out a good intersection
     /// algorithm for tilted rectangles... just going to
     /// use the rectangular outer bounds
+    #[inline(always)]
     fn intersection<C: GetRectangularBounds>(&self, b: C) -> Option<Rect> {
         self.bounding_rect.intersection(b.get_bounds())
     }
 }
 
 impl GetRectangularBounds for Rect {
+    #[inline(always)]
     fn get_bounds(&self) -> Rect {
         *self
     }
 }
 
 impl GetRectangularBounds for TiltedRect {
+    #[inline(always)]
     fn get_bounds(&self) -> Rect {
         self.bounding_rect
     }
