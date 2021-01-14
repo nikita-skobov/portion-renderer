@@ -1,5 +1,6 @@
 use std::ops::Index;
 use projection::ComputePoint;
+// use profiler::Profiler;
 
 pub mod portioner;
 pub mod projection;
@@ -59,6 +60,8 @@ pub struct PortionRenderer<T> {
     textures: TightVec<Texture<T>>,
     layers: Vec<Layer>,
     objects: TightVec<Object>,
+
+    // profiler: Profiler,
 }
 
 // TODO: actually use these.
@@ -292,6 +295,7 @@ impl<T: Default + Clone> PortionRenderer<T> {
         let pixel_buffer = vec![T::default(); data_len];
         let pitch = (width * indices_per_pixel) as usize;
         PortionRenderer {
+            // profiler: Profiler::new(),
             clear_buffer: pixel_buffer.clone(),
             pixel_buffer,
             width,
@@ -635,6 +639,9 @@ impl PortionRenderer<u8> {
             let below_regions = self.get_regions_below_object(object_index, layer_index);
             self.draw_object(object_index, above_regions, below_regions);
         }
+        // let r = self.profiler.report();
+        // println!("{}", r);
+        // std::process::exit(2);
     }
 
     /// like draw_all_layers, but iterates over layer.objects instead of
@@ -680,12 +687,13 @@ impl PortionRenderer<u8> {
             );
         }
 
+        self.portioner.take_region((min_x, min_y), (max_x, max_y));
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
                     continue;
                 }
-                self.portioner.take_pixel(j, i);
+
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
                 // TODO: pixel format???
@@ -707,12 +715,13 @@ impl PortionRenderer<u8> {
         width: u32, height: u32,
     ) {
         let transform: RotateMatrix = (&transform).into();
+        self.portioner.take_region((min_x, min_y), (max_x, max_y));
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
                     continue;
                 }
-                self.portioner.take_pixel(j, i);
+
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
                 let (px, py) = transform.compute_pt(j_shift, i_shift);
@@ -748,12 +757,13 @@ impl PortionRenderer<u8> {
         let texture_data = &texture.data;
         let texture_width = texture.width;
         let texture_height = texture.height;
+        self.portioner.take_region((min_x, min_y), (max_x, max_y));
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_current, j, i) {
                     continue;
                 }
-                self.portioner.take_pixel(j, i);
+
                 let j_shift = j as f32 - shift_x;
                 let i_shift = i as f32 - shift_y;
                 let (px, py) = transform.compute_pt(j_shift, i_shift);
@@ -798,6 +808,7 @@ impl PortionRenderer<u8> {
             );
         }
 
+        self.portioner.take_region((min_x, min_y), (max_x, max_y));
         let item_pixels = &self.textures[texture_index].data;
         let indices_per_pixel = self.indices_per_pixel as usize;
         let mut item_pixel_index = 0;
@@ -813,7 +824,6 @@ impl PortionRenderer<u8> {
                     continue;
                 }
 
-                self.portioner.take_pixel(j, i);
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
                 // TODO: pixel format???
@@ -834,12 +844,12 @@ impl PortionRenderer<u8> {
         min_x: u32, max_x: u32,
     ) {
         let should_try_clear_below = !skip_below.below_my_previous.is_empty();
+        self.portioner.take_region((min_x, min_y), (max_x, max_y));
         for i in min_y..max_y {
             for j in min_x..max_x {
                 if should_skip_point(&skip_above.above_my_previous, j, i) {
                     continue;
                 }
-                self.portioner.take_pixel(j, i);
                 let red_index = get_red_index!(j, i, self.width, self.indices_per_pixel);
                 let red_index = red_index as usize;
 
@@ -869,12 +879,14 @@ impl PortionRenderer<u8> {
         let prev_w = previous_bounds.w;
         let prev_h = previous_bounds.h;
         if !is_first_time {
+            // self.profiler.start_check("clear_object_previous_bounds");
             self.clear_object_previous_bounds(
                 &skip_above,
                 &skip_below,
                 prev_y, prev_y + prev_h,
                 prev_x, prev_x + prev_w,
             );
+            // self.profiler.stop_check("clear_object_previous_bounds");
         } else {
             self.objects[object_index].initial_render = false;
         }
@@ -895,19 +907,23 @@ impl PortionRenderer<u8> {
                 object.previous_bounds = object.get_bounds();
                 return;
             }
+            // self.profiler.start_check("draw_pixel");
             self.draw_pixel(color, skip_above,
                 self.objects[object_index].transform,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w,
                 now_w, now_h,
             );
+            // self.profiler.stop_check("draw_pixel");
         } else {
+            // self.profiler.start_check("draw_exact");
             self.draw_exact(
                 texture_index, skip_above,
                 self.objects[object_index].transform,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w
             );
+            // self.profiler.stop_check("draw_exact");
         }
 
         let mut object = &mut self.objects[object_index];
