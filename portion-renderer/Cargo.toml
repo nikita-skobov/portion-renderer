@@ -7,6 +7,10 @@ edition = "2018"
 [dependencies]
 grid = { path = "../grid" }
 tightvec = { path = "../tightvec" }
+profiler = { path = "../profiler" }
+
+# optional:
+rayon = { version = "1.5.0", optional = true }
 
 [dev-dependencies]
 criterion = "0.3"
@@ -19,3 +23,7 @@ harness = false
 [[bench]]
 name = "bench_draw"
 harness = false
+
+[features]
+multithreaded = ["rayon"]
+profile = []

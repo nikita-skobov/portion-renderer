@@ -1,6 +1,5 @@
 use std::ops::Index;
 use projection::ComputePoint;
-// use profiler::Profiler;
 
 pub mod portioner;
 pub mod projection;
@@ -12,6 +11,31 @@ pub use transform::*;
 pub use portioner::*;
 pub use bounds::*;
 pub use tightvec::TightVec;
+
+#[cfg(feature = "profile")]
+use profiler::Profiler;
+
+#[cfg(feature = "profile")]
+macro_rules! profile_start {
+    ($s:expr, $x:expr) => {
+        $s.start_check($x);
+    };
+}
+#[cfg(not(feature = "profile"))]
+macro_rules! profile_start {
+    ($s:expr, $x:expr) => {};
+}
+#[cfg(feature = "profile")]
+macro_rules! profile_stop {
+    ($s:expr, $x:expr) => {
+        $s.stop_check($x);
+    };
+}
+#[cfg(not(feature = "profile"))]
+macro_rules! profile_stop {
+    ($s:expr, $x:expr) => {};
+}
+
 
 #[macro_export]
 macro_rules! get_red_index {
@@ -61,7 +85,8 @@ pub struct PortionRenderer<T> {
     layers: Vec<Layer>,
     objects: TightVec<Object>,
 
-    // profiler: Profiler,
+    #[cfg(feature = "profile")]
+    profiler: Profiler,
 }
 
 // TODO: actually use these.
@@ -295,7 +320,6 @@ impl<T: Default + Clone> PortionRenderer<T> {
         let pixel_buffer = vec![T::default(); data_len];
         let pitch = (width * indices_per_pixel) as usize;
         PortionRenderer {
-            // profiler: Profiler::new(),
             clear_buffer: pixel_buffer.clone(),
             pixel_buffer,
             width,
@@ -307,6 +331,9 @@ impl<T: Default + Clone> PortionRenderer<T> {
             textures: TightVec::new(),
             objects: TightVec::new(),
             portioner: Portioner::new(width, height, num_rows, num_cols),
+
+            #[cfg(feature = "profile")]
+            profiler: Profiler::new(),
         }
     }
 
@@ -639,9 +666,12 @@ impl PortionRenderer<u8> {
             let below_regions = self.get_regions_below_object(object_index, layer_index);
             self.draw_object(object_index, above_regions, below_regions);
         }
-        // let r = self.profiler.report();
-        // println!("{}", r);
-        // std::process::exit(2);
+
+        #[cfg(feature = "profile")]
+        {
+            let r = self.profiler.report();
+            println!("{}", r);
+        }
     }
 
     /// like draw_all_layers, but iterates over layer.objects instead of
@@ -879,14 +909,14 @@ impl PortionRenderer<u8> {
         let prev_w = previous_bounds.w;
         let prev_h = previous_bounds.h;
         if !is_first_time {
-            // self.profiler.start_check("clear_object_previous_bounds");
+            profile_start!(self.profiler, "clear_object_previous_bounds");
             self.clear_object_previous_bounds(
                 &skip_above,
                 &skip_below,
                 prev_y, prev_y + prev_h,
                 prev_x, prev_x + prev_w,
             );
-            // self.profiler.stop_check("clear_object_previous_bounds");
+            profile_stop!(self.profiler, "clear_object_previous_bounds");
         } else {
             self.objects[object_index].initial_render = false;
         }
@@ -907,23 +937,23 @@ impl PortionRenderer<u8> {
                 object.previous_bounds = object.get_bounds();
                 return;
             }
-            // self.profiler.start_check("draw_pixel");
+            profile_start!(self.profiler, "draw_pixel");
             self.draw_pixel(color, skip_above,
                 self.objects[object_index].transform,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w,
                 now_w, now_h,
             );
-            // self.profiler.stop_check("draw_pixel");
+            profile_stop!(self.profiler, "draw_pixel");
         } else {
-            // self.profiler.start_check("draw_exact");
+            profile_start!(self.profiler, "draw_exact");
             self.draw_exact(
                 texture_index, skip_above,
                 self.objects[object_index].transform,
                 now_y, now_y + now_h,
                 now_x, now_x + now_w
             );
-            // self.profiler.stop_check("draw_exact");
+            profile_stop!(self.profiler, "draw_exact");
         }
 
         let mut object = &mut self.objects[object_index];
