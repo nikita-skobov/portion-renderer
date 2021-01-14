@@ -206,7 +206,7 @@ impl<T: Clone> Grid<T> {
     /// Returns a mutable reference to an element, without performing bound checks.
     /// Generally not recommended, use with caution!
     /// Calling this method with an out-of-bounds index is undefined behavior even if the resulting reference is not used.
-    #[inline]
+    #[inline(always)]
     pub unsafe fn get_unchecked_mut(&mut self, row: usize, col: usize) -> &mut T {
         let cols = self.cols;
         self.data.get_unchecked_mut(row * cols + col)
@@ -224,6 +224,7 @@ impl<T: Clone> Grid<T> {
 
     /// Mutable access to a certain element in the grid.
     /// Returns None if an element beyond the grid bounds is tried to be accessed.
+    #[inline(always)]
     pub fn get_mut(&mut self, row: usize, col: usize) -> Option<&mut T> {
         if row < self.rows && col < self.cols {
             unsafe { Some(self.get_unchecked_mut(row, col)) }
